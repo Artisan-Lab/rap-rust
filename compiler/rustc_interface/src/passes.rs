@@ -808,6 +808,12 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
     sess.time("layout_testing", || layout_test::test_layout(tcx));
     sess.time("abi_testing", || abi_test::test_abi(tcx));
 
+    if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("RAP_HELLO_WORLD").is_some() {
+        sess.time("rap_testing", || {
+            tcx.hir().par_body_owners(|def_id| tcx.ensure().rap_hello_world(def_id));
+        });
+    }
+
     // Avoid overwhelming user with errors if borrow checking failed.
     // I'm not sure how helpful this is, to be honest, but it avoids a
     // lot of annoying errors in the ui tests (basically,

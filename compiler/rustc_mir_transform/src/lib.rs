@@ -124,6 +124,7 @@ pub fn provide(providers: &mut Providers) {
     ffi_unwind_calls::provide(providers);
     shim::provide(providers);
     *providers = Providers {
+        rap_hello_world,
         mir_keys,
         mir_const,
         mir_const_qualif,
@@ -140,6 +141,10 @@ pub fn provide(providers: &mut Providers) {
         deduced_param_attrs: deduce_param_attrs::deduced_param_attrs,
         ..*providers
     };
+}
+
+fn rap_hello_world<'tcx>(_tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> () {
+    println!("Welcome to RAP: Hello World from Function ID: {:?}", def_id);
 }
 
 fn remap_mir_for_const_eval_select<'tcx>(

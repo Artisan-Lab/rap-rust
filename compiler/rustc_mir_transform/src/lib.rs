@@ -26,7 +26,7 @@ use rustc_data_structures::fx::FxIndexSet;
 use rustc_data_structures::steal::Steal;
 use rustc_hir as hir;
 use rustc_hir::def::DefKind;
-use rustc_hir::def_id::LocalDefId;
+use rustc_hir::def_id::{DefId, LocalDefId};
 use rustc_hir::intravisit::{self, Visitor};
 use rustc_index::IndexVec;
 use rustc_middle::mir::visit::Visitor as _;
@@ -116,6 +116,10 @@ use rustc_mir_dataflow::rustc_peek;
 use rustc_errors::{DiagnosticMessage, SubdiagnosticMessage};
 use rustc_fluent_macro::fluent_messages;
 
+pub mod safedrop_check;
+
+use safedrop_check::{SafeDropGraph, FuncMap};
+
 fluent_messages! { "../messages.ftl" }
 
 pub fn provide(providers: &mut Providers) {
@@ -125,6 +129,7 @@ pub fn provide(providers: &mut Providers) {
     shim::provide(providers);
     *providers = Providers {
         rap_hello_world,
+        safedrop_check,
         mir_keys,
         mir_const,
         mir_const_qualif,
@@ -145,6 +150,25 @@ pub fn provide(providers: &mut Providers) {
 
 fn rap_hello_world<'tcx>(_tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> () {
     println!("Welcome to RAP: Hello World from Function ID: {:?}", def_id);
+}
+
+fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
+    if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()){
+        return;
+    }
+    if tcx.is_mir_available(def_id) {
+        let body = tcx.optimized_mir(def_id);
+        let mut func_map = FuncMap::new();
+        let mut safedrop_graph = SafeDropGraph::new(&body, tcx, def_id);
+        safedrop_graph.solve_scc();
+        safedrop_graph.safedrop_check(0, tcx, &mut func_map);
+        if safedrop_graph.visit_times <= 10000{
+            safedrop_graph.output_warning();
+        }
+        else{
+            println!("over_visited: {:?}", def_id);
+        }
+    }
 }
 
 fn remap_mir_for_const_eval_select<'tcx>(

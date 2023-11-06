@@ -113,6 +113,10 @@ rustc_queries! {
         separate_provide_extern
     }
 
+    query safedrop_check(_: DefId) -> () {
+        desc { "check safedrop bugs in rustc mir" }
+    }
+
     query trigger_delay_span_bug(key: DefId) -> () {
         desc { "triggering a delay span bug" }
     }

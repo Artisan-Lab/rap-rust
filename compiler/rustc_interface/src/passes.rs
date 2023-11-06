@@ -814,6 +814,10 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
         });
     }
 
+    sess.time("safedrop_check", || {
+        tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
+    });
+
     // Avoid overwhelming user with errors if borrow checking failed.
     // I'm not sure how helpful this is, to be honest, but it avoids a
     // lot of annoying errors in the ui tests (basically,

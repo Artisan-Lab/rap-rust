@@ -814,9 +814,11 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
         });
     }
 
-    sess.time("safedrop_check", || {
-        tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
-    });
+    if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("RAP_SAFE_DROP").is_some() {
+        sess.time("safedrop_check", || {
+            tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
+        });
+    }
 
     // Avoid overwhelming user with errors if borrow checking failed.
     // I'm not sure how helpful this is, to be honest, but it avoids a

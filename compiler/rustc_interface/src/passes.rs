@@ -814,7 +814,7 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
         });
     }
 
-    if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("RAP_SAFE_DROP").is_some() {
+    if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("SAFEDROP").is_some() {
         sess.time("safedrop_check", || {
             tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
         });

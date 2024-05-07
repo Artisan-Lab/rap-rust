@@ -27,6 +27,9 @@ rustc_trait_selection = { path = "../rustc_trait_selection" }
 rustc_span = { path = "../rustc_span" }
 rustc_fluent_macro = { path = "../rustc_fluent_macro" }
 rustc_macros = { path = "../rustc_macros" }
+log = "0.4.14"
+fern = {version = "0.6.2", features = ["colored"]}
+chrono = "0.4.19"
 
 [dev-dependencies]
 coverage_test_macros = { path = "src/coverage/test_macros" }

@@ -9,6 +9,8 @@ pub mod graph;
 pub mod node;
 pub mod tools;
 pub mod corner_handle;
+pub mod log;
+
 pub use graph::SafeDropGraph;
 pub use node::*;
 pub use tools::*;

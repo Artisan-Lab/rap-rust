@@ -77,7 +77,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool){
         let mut record = FxHashSet::default();
-        if self.nodes[used].so_so() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call) 
+        if !self.nodes[used].so_so() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call) 
         && self.exist_dead(used, &mut record, false) == true 
         && self.bug_records.uaf_bugs.contains(&span) == false{            
             self.bug_records.uaf_bugs.insert(span.clone());

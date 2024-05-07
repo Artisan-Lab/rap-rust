@@ -465,8 +465,11 @@ checksum = "ec837a71355b28f6556dbd569b37b3f363091c0bd4b2e735674521b4c5fd9bc5"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "time 0.1.45",
+ "wasm-bindgen",
  "winapi",
 ]
 
@@ -661,6 +664,17 @@ checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
 name = "colored"
+version = "1.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a5f741c91823341bebf717d4c71bda820630ce065443b58bd1b7451af008355"
+dependencies = [
+ "is-terminal",
+ "lazy_static",
+ "winapi",
+]
+
+[[package]]
+name = "colored"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2674ec482fbc38012cf31e6c42ba0177b431a0cb6f15fe40efa5aab1bda516f6"
@@ -692,7 +706,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "build_helper",
- "colored",
+ "colored 2.0.4",
  "diff",
  "getopts",
  "glob",
@@ -1293,6 +1307,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6999dc1837253364c2ebb0704ba97994bd874e8f195d665c50b7548f6ea92764"
 
 [[package]]
+name = "fern"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9f0c14694cbd524c8720dd69b0e3179344f04ebb5f90f2e4a440c6ea3b2f1ee"
+dependencies = [
+ "colored 1.9.4",
+ "log",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1554,7 +1578,7 @@ checksum = "be4136b2a15dd319360be1c07d9933517ccf0be8f16bf62a3bee4f0d618df427"
 dependencies = [
  "cfg-if",
  "libc",
- "wasi",
+ "wasi 0.11.0+wasi-snapshot-preview1",
 ]
 
 [[package]]
@@ -2447,7 +2471,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "927a765cd3fc26206e66b296465fa9d3e5ab003e651c1b3c060e7956d96b19d2"
 dependencies = [
  "libc",
- "wasi",
+ "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.48.0",
 ]
 
@@ -2464,7 +2488,7 @@ dependencies = [
 name = "miri"
 version = "0.1.0"
 dependencies = [
- "colored",
+ "colored 2.0.4",
  "ctrlc",
  "env_logger 0.10.0",
  "getrandom",
@@ -3733,7 +3757,7 @@ dependencies = [
  "rustc_trait_selection",
  "rustc_ty_utils",
  "serde_json",
- "time",
+ "time 0.3.22",
  "tracing",
  "windows",
 ]
@@ -4224,9 +4248,12 @@ dependencies = [
 name = "rustc_mir_transform"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "coverage_test_macros",
  "either",
+ "fern",
  "itertools",
+ "log",
  "rustc_ast",
  "rustc_attr",
  "rustc_const_eval",
@@ -5066,7 +5093,7 @@ dependencies = [
  "rustc-demangle",
  "std_detect",
  "unwind",
- "wasi",
+ "wasi 0.11.0+wasi-snapshot-preview1",
 ]
 
 [[package]]
@@ -5406,6 +5433,17 @@ version = "0.1.0"
 
 [[package]]
 name = "time"
+version = "0.1.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b797afad3f312d1c66a56d11d0316f916356d11bd158fbc6ca6389ff6bf805a"
+dependencies = [
+ "libc",
+ "wasi 0.10.0+wasi-snapshot-preview1",
+ "winapi",
+]
+
+[[package]]
+name = "time"
 version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea9e1b3cf1243ae005d9e74085d4d542f3125458f3a81af210d901dcd7411efd"
@@ -5697,7 +5735,7 @@ dependencies = [
  "cargo-platform",
  "cargo_metadata 0.15.4",
  "color-eyre",
- "colored",
+ "colored 2.0.4",
  "comma",
  "crossbeam-channel",
  "indicatif",
@@ -5724,7 +5762,7 @@ dependencies = [
  "cargo-platform",
  "cargo_metadata 0.15.4",
  "color-eyre",
- "colored",
+ "colored 2.0.4",
  "comma",
  "crossbeam-channel",
  "indicatif",
@@ -5966,6 +6004,12 @@ checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
 ]
+
+[[package]]
+name = "wasi"
+version = "0.10.0+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
 
 [[package]]
 name = "wasi"

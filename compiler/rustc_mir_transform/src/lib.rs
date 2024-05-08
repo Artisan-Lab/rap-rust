@@ -118,7 +118,8 @@ use rustc_fluent_macro::fluent_messages;
 
 pub mod safedrop_check;
 
-use safedrop_check::{SafeDropGraph, FuncMap};
+use safedrop_check::{SafeDropGraph, FuncMap, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
+use log::Log;
 
 fluent_messages! { "../messages.ftl" }
 
@@ -153,6 +154,7 @@ fn rap_hello_world<'tcx>(_tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> () {
 }
 
 fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
+    rap_info!("start");
     if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()){
         return;
     }

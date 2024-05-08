@@ -28,6 +28,8 @@ rustc_span = { path = "../rustc_span" }
 rustc_fluent_macro = { path = "../rustc_fluent_macro" }
 rustc_macros = { path = "../rustc_macros" }
 log = "0.4.14"
+env_logger = "0.11.3"
+lazy_static = "1.4.0"
 fern = {version = "0.6.2", features = ["colored"]}
 chrono = "0.4.19"
 

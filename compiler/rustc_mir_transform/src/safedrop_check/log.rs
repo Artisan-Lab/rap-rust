@@ -1,21 +1,13 @@
-use std::env;
-
-use chrono::{Datelike, Local, Timelike};
-use fern::{self, Dispatch};
+use lazy_static::lazy_static;
+use log::{Level, LevelFilter, MetadataBuilder, Record};
+use env_logger::{Builder, Logger, WriteStyle};
 use fern::colors::{Color, ColoredLevelConfig};
-use log::LevelFilter;
+use chrono::{Datelike, Local, Timelike};
 
-#[derive(Debug, Copy, Clone, Hash)]
-pub enum Verbosity {
-    Info,
-    Debug,
-    Trace,
-}
+use std::{fmt, io::Write};
 
-impl Verbosity {
-    pub fn init_rap_log_system_with_verbosity(verbose: Verbosity) -> Result<(), fern::InitError> {
-        let mut dispatch = Dispatch::new();
-
+lazy_static! {
+    pub static ref RAP_LOGGER: Logger = {
         let color_line = ColoredLevelConfig::new()
             .info(Color::White)
             .error(Color::Red)
@@ -25,34 +17,11 @@ impl Verbosity {
 
         let color_level = color_line.info(Color::Green);
 
-        dispatch = match verbose {
-            Verbosity::Info => dispatch.level(LevelFilter::Info),
-            Verbosity::Debug => dispatch.level(LevelFilter::Debug),
-            Verbosity::Trace => dispatch.level(LevelFilter::Trace),
-        }.level_for(
-            "rap",
-            if cfg!(debug_assertions) {LevelFilter::Debug} else {LevelFilter::Info}
-        );
-
-        if let Some(log_file_path) = env::var_os("RAP_LOG_FILE_PATH") {
-            let file_dispatch = Dispatch::new()
-                .filter(|metadata| metadata.target() == "=RAP=")
-                .format(|callback, args, record| {
-                    callback.finish(format_args!(
-                        "{} |RAP OUTPUT-{:5}| {}",
-                        Local::now().date_naive(),
-                        record.level(),
-                        args,
-                    ))
-                })
-                .chain(fern::log_file(log_file_path)?);
-            dispatch = dispatch.chain(file_dispatch);
-        }
-
-        let stdout_dispatch = Dispatch::new()
-            .format(move |callback, args, record| {
+        let builder = Builder::new()
+            .format(move |buf, record| {
                 let time_now = Local::now();
-                callback.finish(format_args!(
+                writeln!(
+                    buf,
                     "{}{}-{}:{}:{}:{} |BACK| |{:5}{}| [{}] {}\x1B[0m",
                     format_args!(
                         "\x1B[{}m",
@@ -69,39 +38,65 @@ impl Verbosity {
                         color_line.get_color(&record.level()).to_fg_str()
                     ),
                     record.target(),
-                    args
-                ))
+                    record.args()
+                )
             })
-            .level(log::LevelFilter::Info)
-            .chain(std::io::stdout());
+            .filter(None, LevelFilter::Info)
+            .write_style(WriteStyle::Always)
+            .build()
+        ;
+        builder
+    };
+}
 
-        dispatch.chain(stdout_dispatch).apply()?;
-        Ok(())
-    }
+#[derive(Debug, Copy, Clone, Hash)]
+pub enum RapLogLevel {
+    Info,
+    Debug,
+    Trace,
+    Error,
+    Warn,
+}
+
+pub fn record_msg(args: fmt::Arguments<'_>, level: RapLogLevel) -> Record<'_> {
+    let meta = MetadataBuilder::new()
+        .target("RAP")
+        .level(
+            match level {
+                RapLogLevel::Info => Level::Info,
+                RapLogLevel::Debug => Level::Debug,
+                RapLogLevel::Trace => Level::Trace,
+                RapLogLevel::Error => Level::Error,
+                RapLogLevel::Warn => Level::Warn,
+            }
+        )
+        .build();
+
+    let record = Record::builder()
+        .metadata(meta)
+        .args(args.clone())
+        .build();
+
+    record
 }
 
 #[macro_export]
 macro_rules! rap_info {
     ($($arg:tt)+) => (
-        ::log::info!(target: "RAP", $($arg)+)
+        RAP_LOGGER.log(&record_msg(format_args!($($arg)+), RapLogLevel::Info))
     );
 }
 
 #[macro_export]
 macro_rules! rap_error {
     ($($arg:tt)+) => (
-        ::log::error!(target: "RAP", $($arg)+)
+        RAP_LOGGER.log(&record_msg(format_args!($($arg)+), RapLogLevel::Error))
     );
 }
 
 #[macro_export]
 macro_rules! rap_warn {
     ($($arg:tt)+) => (
-        ::log::warn!(target: "RAP", $($arg)+)
+        RAP_LOGGER.log(&record_msg(format_args!($($arg)+), RapLogLevel::Warn))
     );
-}
-
-pub fn rap_error_and_exit(msg: impl AsRef<str>) -> ! {
-    rap_error!("{}", msg.as_ref());
-    std::process::exit(1)
 }

@@ -7,22 +7,19 @@ use rustc_middle::mir::ProjectionElem;
 use rustc_span::Span;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::fx::FxHashSet;
-use super::Node;
-use super::ReturnAssign;
-use super::ReturnResults;
-use super::SafeDropGraph;
+use crate::{rap_error, rap_warn};
+use super::{Node, ReturnAssign, ReturnResults, SafeDropGraph, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
 use super::corner_handle::is_corner_adt;
 use super::graph::BlockNode;
-pub use std::fmt;
 
+use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     pub fn output_warning(&self){
         if self.bug_records.is_bug_free(){
             return;
         }
-        println!("=================================");
-        println!("Function:{0:?};{1:?}", self.def_id, self.def_id.index);
+        rap_warn!("SafeDrop: Function:{0:?};{1:?}", self.def_id, self.def_id.index);
         self.bug_records.df_bugs_output();
         self.bug_records.uaf_bugs_output();
         self.bug_records.dp_bug_output(self.span);
@@ -295,11 +292,11 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
 //inter-procedure instruction to merge alias.
 pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &ReturnAssign, arg_vec: &Vec<usize>){
     if assign.left_index >= arg_vec.len(){
-        println!("vector warning!");
+        rap_error!("SafeDrop: Vector warning!");
         return;
     }
     if assign.right_index >= arg_vec.len(){
-        println!("vector warning!");
+        rap_error!("SafeDrop: Vector warning!");
         return;
     }
     let left_init = arg_vec[assign.left_index];
@@ -373,31 +370,30 @@ impl BugRecords{
     }
 
     pub fn df_bugs_output(&self){
-        if self.df_bugs.is_empty(){
-            return;
-        }
-        println!("Double Free Bugs Exist:");
-        for i in self.df_bugs.iter(){
-            println!("occurs in {:?}", i.1);
+        if !self.df_bugs.is_empty() {
+            rap_warn!("SafeDrop: Double Free Detected:");
+            for i in self.df_bugs.iter() {
+                rap_warn!("Located in {:?}", i.1);
+            }
         }
     }
 
     pub fn uaf_bugs_output(&self){
-        if self.uaf_bugs.is_empty(){
-            return;
+        if !self.uaf_bugs.is_empty() {
+            rap_warn!("SafeDrop: Use After Free Detected:");
+            for i in self.uaf_bugs.iter() {
+                rap_warn!("Located in {:?}", i);
+            }
         }
-        println!("Use After Free Bugs Exist:");
-        for i in self.uaf_bugs.iter(){
-            println!("occurs in {:?}", i);
-        }
+
     }
 
     pub fn dp_bug_output(&self, span: Span){
         if self.dp_bug{
-            println!("Dangling Pointer Bug Exist {:?}", span);
+            rap_warn!("SafeDrop: Dangling Pointer Detected in {:?}", span);
         }
         if self.dp_bug_unwind{
-            println!("Dangling Pointer Bug Exist in Unwinding {:?}", span);
+            rap_warn!("SafeDrop: Dangling Pointer Detected in Unwinding {:?}", span);
         }
     }
 }

@@ -14,6 +14,7 @@ use rustc_data_structures::fx::FxHashSet;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_middle::mir::Operand;
 use rustc_middle::mir::Rvalue;
+use rustc_middle::ty;
 use rustc_span::Span;
 use super::BugRecords;
 use super::tools::*;
@@ -314,7 +315,22 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 //         current_node.push(target.as_usize());
                 //     }
                 // },
-                TerminatorKind::Call { func: _, args: _, destination: _, ref target, ref unwind, call_source: _, fn_span: _ } => {
+                TerminatorKind::Call { ref func, args: _, destination: _, ref target, ref unwind, call_source: _, fn_span: _ } => {
+                    match func {
+                        Operand::Constant(c) => {
+                            match c.ty().kind() {
+                                ty::FnDef(id, ..) => {
+                                    // Fixme: std::mem::drop = 1634, std::ptr::drop_in_place = 2160
+                                    if id.index.as_usize() == 1634 || id.index.as_usize() == 2160 {
+                                        current_node.drops.push(terminator.clone());
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => (),
+                    }
+
                     if let Some(tt) = target {
                         current_node.push(tt.as_usize());
                     }

@@ -12,6 +12,11 @@ pub mod tools;
 pub mod corner_handle;
 pub mod log;
 
+use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
+
+extern crate log as extern_log;
+use extern_log::Log;
+
 pub use graph::SafeDropGraph;
 pub use node::*;
 pub use tools::*;
@@ -152,6 +157,19 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     let drop_local = self.handle_projection(false, place.local.as_usize(), tcx, place.clone());
                     let info = drop.source_info.clone();
                     self.dead_node(drop_local, life_begin, &info, false);
+                },
+                TerminatorKind::Call { func: _,  ref args, .. } => {
+                    let life_begin = self.father_block[bb_index];
+                    assert!(args.len() > 0);
+                    let place = match args[0] {
+                        Operand::Copy(place) => place,
+                        Operand::Move(place) => place,
+                        _ => { rap_error!("Constant operand exists: {:?}", args[0]); return; }
+                    };
+                    let drop_local = self.handle_projection(false, place.local.as_usize(), tcx, place.clone());
+                    let info = drop.source_info.clone();
+                    self.dead_node(drop_local, life_begin, &info, false);
+
                 },
                 _ => {}
             }

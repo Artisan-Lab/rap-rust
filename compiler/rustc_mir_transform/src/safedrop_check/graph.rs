@@ -16,7 +16,7 @@ use rustc_middle::mir::Operand;
 use rustc_middle::mir::Rvalue;
 use rustc_middle::ty;
 use rustc_span::Span;
-use super::BugRecords;
+use super::{BugRecords, DROP, DROP_IN_PLACE};
 use super::tools::*;
 use super::node::Node;
 use super::node::ReturnResults;
@@ -113,7 +113,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for ld in 0..locals.len() {
             let temp = Local::from(ld);
             let need_drop = locals[temp].ty.needs_drop(tcx, param_env);
-            let so_so = so_so(locals[temp].ty);
+            let so_so = so_so(tcx, locals[temp].ty);
             let mut node = Node::new(ld, ld, need_drop, need_drop || !so_so);
             node.kind = kind(locals[temp].ty);
             nodes.push(node);
@@ -188,7 +188,6 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 current_node.assignments.push(assign);
                             }
                         },
-                        
                         Rvalue::ShallowInitBox(ref x, _) => {
                             if nodes[left_ssa].sons.contains_key(&0) == false{
                                 let mut node = Node::new(left_ssa, nodes.len(), false, true);
@@ -321,7 +320,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match c.ty().kind() {
                                 ty::FnDef(id, ..) => {
                                     // Fixme: std::mem::drop = 1634, std::ptr::drop_in_place = 2160
-                                    if id.index.as_usize() == 1634 || id.index.as_usize() == 2160 {
+                                    if id.index.as_usize() == DROP || id.index.as_usize() == DROP_IN_PLACE {
                                         current_node.drops.push(terminator.clone());
                                     }
                                 }

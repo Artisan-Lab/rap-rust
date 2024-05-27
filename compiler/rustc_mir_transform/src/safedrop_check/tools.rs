@@ -168,7 +168,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     if self.nodes[current_local].sons.contains_key(&index) == false{
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
-                        let so_so = so_so(ty);
+                        let so_so = so_so(tcx, ty);
                         let mut node = Node::new(init_local, self.nodes.len(), need_drop, need_drop || !so_so);
                         node.kind = kind(ty);
                         node.alive = self.nodes[current_local].alive;
@@ -233,25 +233,25 @@ pub fn kind<'tcx>(current_ty: Ty<'tcx>) -> usize {
 }
 
 //type filter.
-pub fn so_so<'tcx>(current_ty: Ty<'tcx>) -> bool {
+pub fn so_so<'tcx>(tcx: TyCtxt<'tcx>, current_ty: Ty<'tcx>) -> bool {
     match current_ty.kind() {
         ty::Bool
         | ty::Char
         | ty::Int(_)
         | ty::Uint(_)
         | ty::Float(_) => true,
-        ty::Array(ref tys,_) => so_so(*tys),
-        ty::Adt(_, ref substs) => {
-            for tys in substs.types() {
-                if !so_so(tys) {
+        ty::Array(ref tys,_) => so_so(tcx, *tys),
+        ty::Adt(ref adtdef, ref substs) => {
+            for field in adtdef.all_fields() {
+                if !so_so(tcx, field.ty(tcx, substs)) {
                     return false;
                 }
             }
             true
         },
-        ty::Tuple(ref substs) => {
-            for tys in substs.iter() {
-                if !so_so(tys) {
+        ty::Tuple(ref tuple_fields) => {
+            for tys in tuple_fields.iter() {
+                if !so_so(tcx, tys) {
                     return false;
                 }
             }

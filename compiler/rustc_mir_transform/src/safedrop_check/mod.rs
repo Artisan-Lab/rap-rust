@@ -23,6 +23,11 @@ pub use tools::*;
 pub use corner_handle::*;
 pub use std::fmt;
 
+const DROP:usize = 1634;
+const DROP_IN_PLACE:usize = 2160;
+const CALL_MUT:usize = 3022;
+const NEXT:usize = 7587;
+
 impl<'tcx> SafeDropGraph<'tcx>{
     // alias analysis for a single block
     pub fn alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, move_set: &mut FxHashSet<usize>){

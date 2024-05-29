@@ -154,7 +154,6 @@ fn rap_hello_world<'tcx>(_tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> () {
 }
 
 fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
-    rap_info!("start");
     if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()){
         return;
     }

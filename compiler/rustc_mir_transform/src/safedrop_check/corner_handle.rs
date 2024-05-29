@@ -1,6 +1,7 @@
 use crate::SafeDropGraph;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_span::def_id::DefId;
+use crate::safedrop_check::{CALL_MUT, NEXT};
 
 impl<'tcx> SafeDropGraph<'tcx> {
     //can also use the format to check.
@@ -19,12 +20,12 @@ impl<'tcx> SafeDropGraph<'tcx> {
         //     let mut c = || {x+1;};
         //     c.call_mut(());
         // }
-        if def_id.index.as_usize() == 3022 {
+        if def_id.index.as_usize() == CALL_MUT {
             return true;
         }
 
         // CASE 2: function::iterator::next
-        if def_id.index.as_usize() == 7587 {
+        if def_id.index.as_usize() == NEXT {
             return true;
         }
 

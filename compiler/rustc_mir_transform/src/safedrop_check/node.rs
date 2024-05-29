@@ -90,7 +90,7 @@ impl ReturnAssign{
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ReturnResults{
     pub arg_size: usize,
     pub assignments: Vec<ReturnAssign>,

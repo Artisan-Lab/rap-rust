@@ -107,11 +107,6 @@ pub use plumbing::{IntoQueryParam, TyCtxtAt, TyCtxtEnsure, TyCtxtEnsureWithValue
 // Queries marked with `fatal_cycle` do not need the latter implementation,
 // as they will raise an fatal error on query cycles instead.
 rustc_queries! {
-    query rap_hello_world(key: DefId) -> () {
-        desc { "printing the id of each function all" }
-        cache_on_disk_if { key.is_local() }
-        separate_provide_extern
-    }
 
     query safedrop_check(_: DefId) -> () {
         desc { "check safedrop bugs in rustc mir" }

@@ -129,7 +129,6 @@ pub fn provide(providers: &mut Providers) {
     ffi_unwind_calls::provide(providers);
     shim::provide(providers);
     *providers = Providers {
-        rap_hello_world,
         safedrop_check,
         mir_keys,
         mir_const,
@@ -147,10 +146,6 @@ pub fn provide(providers: &mut Providers) {
         deduced_param_attrs: deduce_param_attrs::deduced_param_attrs,
         ..*providers
     };
-}
-
-fn rap_hello_world<'tcx>(_tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> () {
-    rap_info!("Welcome to RAP: Hello World from Function ID: {:?}", def_id);
 }
 
 fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {

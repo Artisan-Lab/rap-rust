@@ -5,7 +5,7 @@ pub struct Node{
     pub index: usize,
     pub local: usize,
     need_drop: bool,
-    so_so:bool,
+    is_filtered_type: bool,
     pub kind: usize,
     pub father: usize,
     pub alias: Vec<usize>,
@@ -15,18 +15,18 @@ pub struct Node{
 }
 
 impl Node{
-    pub fn new(index: usize, local: usize, need_drop: bool, so_so: bool) -> Node{
+    pub fn new(index: usize, local: usize, need_drop: bool, is_filtered_type: bool) -> Node{
         let mut eq = Vec::new();
         eq.push(local);
-        Node { index: index, local: local, need_drop: need_drop, father: local, alias: eq, alive: 0, so_so: so_so, kind: 0, sons: FxHashMap::default(), field_info: Vec::<usize>::new()}
+        Node { index: index, local: local, need_drop: need_drop, father: local, alias: eq, alive: 0, is_filtered_type: is_filtered_type, kind: 0, sons: FxHashMap::default(), field_info: Vec::<usize>::new()}
     }
 
     pub fn need_drop(&self) -> bool{
         return self.need_drop;
     }
 
-    pub fn so_so(&self) -> bool{
-        return self.so_so;
+    pub fn is_filtered_type(&self) -> bool{
+        return self.is_filtered_type;
     }
 
     pub fn dead(&mut self){
@@ -58,35 +58,35 @@ impl Node{
 pub struct ReturnAssign{
     pub left_index: usize,
     pub left: Vec<usize>,
-    pub left_so_so: bool, 
+    pub left_is_filtered_type: bool, 
     pub left_need_drop: bool,
     pub right_index: usize,
     pub right: Vec<usize>,
-    pub right_so_so: bool, 
+    pub right_is_filtered_type: bool, 
     pub right_need_drop: bool,
     pub atype: usize,
 }
 
 impl ReturnAssign{
-    pub fn new(atype: usize, left_index: usize, left_so_so: bool, left_need_drop: bool,
-        right_index: usize, right_so_so: bool, right_need_drop: bool) -> ReturnAssign{
+    pub fn new(atype: usize, left_index: usize, left_is_filtered_type: bool, left_need_drop: bool,
+        right_index: usize, right_is_filtered_type: bool, right_need_drop: bool) -> ReturnAssign{
         let left = Vec::<usize>::new();
         let right = Vec::<usize>::new();
         ReturnAssign{
             left_index: left_index,
             left: left,
-            left_so_so: left_so_so,
+            left_is_filtered_type: left_is_filtered_type,
             left_need_drop: left_need_drop,
             right_index: right_index,
             right: right,
-            right_so_so: right_so_so,
+            right_is_filtered_type: right_is_filtered_type,
             right_need_drop: right_need_drop,
             atype: atype
         }
     }
 
     pub fn valuable(&self) -> bool{
-        return self.left_so_so && self.right_so_so;
+        return self.left_is_filtered_type && self.right_is_filtered_type;
     }
 }
 

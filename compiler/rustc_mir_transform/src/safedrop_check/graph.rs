@@ -113,8 +113,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for ld in 0..locals.len() {
             let temp = Local::from(ld);
             let need_drop = locals[temp].ty.needs_drop(tcx, param_env);
-            let so_so = so_so(tcx, locals[temp].ty);
-            let mut node = Node::new(ld, ld, need_drop, need_drop || !so_so);
+            let is_filtered_type = type_filter(tcx, locals[temp].ty);
+            let mut node = Node::new(ld, ld, need_drop, need_drop || !is_filtered_type);
             node.kind = kind(locals[temp].ty);
             nodes.push(node);
         }
@@ -140,7 +140,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -148,7 +148,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 },
                                 Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 1, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -174,7 +174,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                         Rvalue::Ref(_, _, ref p) => {
                             let right_ssa = p.local.as_usize();
-                            if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                            if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                 let right = p.clone();
                                 let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                 current_node.assignments.push(assign);
@@ -182,7 +182,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         },
                         Rvalue::AddressOf(_, ref p) => {
                             let right_ssa = p.local.as_usize();
-                            if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                            if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                 let right = p.clone();
                                 let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                 current_node.assignments.push(assign);
@@ -213,7 +213,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 2, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -221,7 +221,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 },
                                 Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 2, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -234,7 +234,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -242,7 +242,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 },
                                 Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                    if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, 1, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -256,7 +256,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 match each_x {
                                     Operand::Copy(ref p) => {
                                         let right_ssa = p.local.as_usize();
-                                        if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                        if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                             let right = p.clone();
                                             let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                             current_node.assignments.push(assign);
@@ -264,7 +264,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                     },
                                     Operand::Move(ref p) => {
                                         let right_ssa = p.local.as_usize();
-                                        if nodes[left_ssa].so_so() && nodes[right_ssa].so_so(){
+                                        if nodes[left_ssa].is_filtered_type() && nodes[right_ssa].is_filtered_type(){
                                             let right = p.clone();
                                             let assign = Assignment::new(left, right, 0, statement.source_info.span.clone());
                                             current_node.assignments.push(assign);

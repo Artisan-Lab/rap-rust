@@ -64,9 +64,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.nodes[left_ssa].alive = self.father_block[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(left_ssa);
-                    let mut so_so_flag = 0;
-                    if self.nodes[left_ssa].so_so() {
-                        so_so_flag += 1;
+                    let mut is_filtered_type_flag = 0;
+                    if self.nodes[left_ssa].is_filtered_type() {
+                        is_filtered_type_flag += 1;
                     }
                     for arg in args {
                         match arg {
@@ -74,16 +74,16 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].so_so() {
-                                    so_so_flag += 1;
+                                if self.nodes[right_ssa].is_filtered_type() {
+                                    is_filtered_type_flag += 1;
                                 }
                             },
                             Operand::Move(ref p) => {
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].so_so() {
-                                    so_so_flag += 1;
+                                if self.nodes[right_ssa].is_filtered_type() {
+                                    is_filtered_type_flag += 1;
                                 }
                             },
                             Operand::Constant(_) => {
@@ -92,7 +92,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                     }
                     if let ty::FnDef(ref target_id, _) = constant.const_.ty().kind() {
-                        if so_so_flag > 1 || (so_so_flag > 0 && Self::should_check(target_id.clone()) == false){
+                        if is_filtered_type_flag > 1 || (is_filtered_type_flag > 0 && Self::should_check(target_id.clone()) == false){
                             if tcx.is_mir_available(*target_id){
                                 if func_map.map.contains_key(&target_id.index.as_usize()){
                                     let assignments = func_map.map.get(&target_id.index.as_usize()).unwrap();
@@ -131,13 +131,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             }
                             else{
-                                if self.nodes[left_ssa].so_so(){
+                                if self.nodes[left_ssa].is_filtered_type(){
                                     if self.corner_handle(left_ssa, &merge_vec, move_set, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
                                     for right_ssa in &merge_vec{
-                                        if self.nodes[*right_ssa].so_so() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
+                                        if self.nodes[*right_ssa].is_filtered_type() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
                                             right_set.push(*right_ssa);
                                         }
                                     }

@@ -21,6 +21,12 @@ use super::tools::*;
 use super::node::Node;
 use super::node::ReturnResults;
 
+pub enum AssignType {
+    Copy,
+    Mov,
+    Cast,
+    Discriminant,
+}
 
 //self-defined assignments structure. 
 #[derive(Debug,Clone)]

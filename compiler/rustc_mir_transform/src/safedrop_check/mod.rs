@@ -11,13 +11,14 @@ pub mod node;
 pub mod tools;
 pub mod corner_handle;
 pub mod log;
+pub mod utils;
 
 use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
 
 extern crate log as extern_log;
 use extern_log::Log;
 
-pub use graph::SafeDropGraph;
+pub use graph::*;
 pub use node::*;
 pub use tools::*;
 pub use corner_handle::*;
@@ -38,13 +39,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for i in current_block.assignments{
             let mut l_node_ref = self.handle_projection(false, i.left.local.as_usize(), tcx, i.left.clone());
             let r_node_ref = self.handle_projection(true, i.right.local.as_usize(), tcx, i.right.clone());
-            if i.atype == 3{
+            if i.atype == AssignType::Variant {
                 self.nodes[l_node_ref].alias[0] = r_node_ref;
                 continue;
             }
             self.uaf_check(r_node_ref, i.span, i.right.local.as_usize(), false);
             self.fill_alive(l_node_ref, self.father_block[bb_index] as isize);
-            if i.atype == 2{
+            if i.atype == AssignType::Field {
                 l_node_ref = *self.nodes[l_node_ref].sons.get(&0).unwrap() + 2;
                 self.nodes[l_node_ref].alive = self.father_block[bb_index] as isize;
                 self.nodes[l_node_ref-1].alive = self.father_block[bb_index] as isize;
@@ -64,9 +65,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.nodes[left_ssa].alive = self.father_block[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(left_ssa);
-                    let mut is_filtered_type_flag = 0;
-                    if self.nodes[left_ssa].is_filtered_type() {
-                        is_filtered_type_flag += 1;
+                    let mut is_reserved_type_flag = 0;
+                    if self.nodes[left_ssa].is_reserved_type() {
+                        is_reserved_type_flag += 1;
                     }
                     for arg in args {
                         match arg {
@@ -74,16 +75,16 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].is_filtered_type() {
-                                    is_filtered_type_flag += 1;
+                                if self.nodes[right_ssa].is_reserved_type() {
+                                    is_reserved_type_flag += 1;
                                 }
                             },
                             Operand::Move(ref p) => {
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].is_filtered_type() {
-                                    is_filtered_type_flag += 1;
+                                if self.nodes[right_ssa].is_reserved_type() {
+                                    is_reserved_type_flag += 1;
                                 }
                             },
                             Operand::Constant(_) => {
@@ -92,7 +93,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                     }
                     if let ty::FnDef(ref target_id, _) = constant.const_.ty().kind() {
-                        if is_filtered_type_flag > 1 || (is_filtered_type_flag > 0 && Self::should_check(target_id.clone()) == false){
+                        if is_reserved_type_flag > 1 || (is_reserved_type_flag > 0 && Self::should_check(target_id.clone()) == false){
                             if tcx.is_mir_available(*target_id){
                                 if func_map.map.contains_key(&target_id.index.as_usize()){
                                     let assignments = func_map.map.get(&target_id.index.as_usize()).unwrap();
@@ -131,13 +132,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             }
                             else{
-                                if self.nodes[left_ssa].is_filtered_type(){
+                                if self.nodes[left_ssa].is_reserved_type(){
                                     if self.corner_handle(left_ssa, &merge_vec, move_set, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
                                     for right_ssa in &merge_vec{
-                                        if self.nodes[*right_ssa].is_filtered_type() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
+                                        if self.nodes[*right_ssa].is_reserved_type() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
                                             right_set.push(*right_ssa);
                                         }
                                     }

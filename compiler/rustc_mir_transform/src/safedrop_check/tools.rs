@@ -19,7 +19,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         if self.bug_records.is_bug_free(){
             return;
         }
-        rap_warn!("SafeDrop: Function:{0:?};{1:?}", self.def_id, self.def_id.index);
+        rap_warn!("Function:{:?};{:?}", self.def_id, self.def_id.index);
         self.bug_records.df_bugs_output();
         self.bug_records.uaf_bugs_output();
         self.bug_records.dp_bug_output(self.span);
@@ -63,7 +63,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
     pub fn df_check(&mut self, drop: usize, span: Span) -> bool{
         let root = self.nodes[drop].index;
         if self.nodes[drop].is_alive() == false 
-        && self.bug_records.df_bugs.contains_key(&root) == false{
+        && self.bug_records.df_bugs.contains_key(&root) == false {
             self.bug_records.df_bugs.insert(root, span.clone());
         }
         return self.nodes[drop].is_alive() == false;
@@ -71,9 +71,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool){
         let mut record = FxHashSet::default();
-        if self.nodes[used].is_filtered_type() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
+        if self.nodes[used].is_reserved_type() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
         && self.exist_dead(used, &mut record, false) == true 
-        && self.bug_records.uaf_bugs.contains(&span) == false{            
+        && self.bug_records.uaf_bugs.contains(&span) == false {            
             self.bug_records.uaf_bugs.insert(span.clone());
         }
     }
@@ -85,7 +85,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>){
         if current_block.is_cleanup == false{
-            if self.nodes[0].is_filtered_type() && self.dp_check(0){
+            if self.nodes[0].is_reserved_type() && self.dp_check(0){
                 self.bug_records.dp_bug = true;
             }
             else{
@@ -134,7 +134,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             }
         }
         //SCC.
-        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].is_filtered_type(){
+        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].is_reserved_type(){
             self.nodes[drop].dead();   
         }
     }
@@ -149,8 +149,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 ProjectionElem::Deref => {
                     if current_local == self.nodes[current_local].alias[0] && self.nodes[current_local].is_ref() == false{
                         let need_drop = true;
-                        let is_filtered_type = true;
-                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), need_drop, need_drop || !is_filtered_type);
+                        let is_reserved_type = true;
+                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), None, need_drop, need_drop || !is_reserved_type);
                         node.kind = 1; //TODO
                         node.alive = self.nodes[current_local].alive;
                         self.nodes[current_local].alias[0] = self.nodes.len();
@@ -168,8 +168,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     if self.nodes[current_local].sons.contains_key(&index) == false{
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
-                        let is_filtered_type = type_filter(tcx, ty);
-                        let mut node = Node::new(init_local, self.nodes.len(), need_drop, need_drop || !is_filtered_type);
+                        let is_reserved_type = type_filter(tcx, ty);
+                        let mut node = Node::new(init_local, self.nodes.len(), None, need_drop, need_drop || !is_reserved_type);
                         node.kind = kind(ty);
                         node.alive = self.nodes[current_local].alive;
                         node.field_info = self.nodes[current_local].field_info.clone();
@@ -199,8 +199,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             let left_node = node;
                             let right_node = &results_nodes[alias];
                             let mut new_assign = ReturnAssign::new(0, 
-                                left_node.index, left_node.is_filtered_type(), left_node.need_drop(),
-                                right_node.index, right_node.is_filtered_type(), right_node.need_drop());
+                                left_node.index, left_node.is_reserved_type(), left_node.need_drop(),
+                                right_node.index, right_node.is_reserved_type(), right_node.need_drop());
                             new_assign.left = left_node.field_info.clone();
                             new_assign.right = right_node.field_info.clone();
                             self.return_results.assignments.push(new_assign);
@@ -275,7 +275,7 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
     }
     for son in nodes[right_ssa].sons.clone().into_iter(){
         if nodes[left_ssa].sons.contains_key(&son.0) == false{
-            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), nodes[son.1].need_drop(), nodes[son.1].is_filtered_type());
+            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), None, nodes[son.1].need_drop(), nodes[son.1].is_reserved_type());
             node.kind = nodes[son.1].kind;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -305,8 +305,8 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
     for index in assign.left.iter(){
         if nodes[left_ssa].sons.contains_key(&index) == false{
             let need_drop = assign.left_need_drop;
-            let is_filtered_type = assign.left_is_filtered_type;
-            let mut node = Node::new(left_init, nodes.len(), need_drop, is_filtered_type);
+            let is_reserved_type = assign.left_is_reserved_type;
+            let mut node = Node::new(left_init, nodes.len(), None, need_drop, is_reserved_type);
             node.kind = 1;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -323,8 +323,8 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
         }
         if nodes[right_ssa].sons.contains_key(&index) == false{
             let need_drop = assign.right_need_drop;
-            let is_filtered_type = assign.right_is_filtered_type;
-            let mut node = Node::new(right_init, nodes.len(), need_drop, is_filtered_type);
+            let is_reserved_type = assign.right_is_reserved_type;
+            let mut node = Node::new(right_init, nodes.len(), None, need_drop, is_reserved_type);
             node.kind = 1;
             node.alive = nodes[right_ssa].alive;
             node.field_info = nodes[right_ssa].field_info.clone();

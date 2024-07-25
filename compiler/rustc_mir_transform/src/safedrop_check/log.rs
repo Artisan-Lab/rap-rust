@@ -3,7 +3,6 @@ use log::{Level, LevelFilter, MetadataBuilder, Record};
 use env_logger::{Builder, Logger, WriteStyle};
 use fern::colors::{Color, ColoredLevelConfig};
 use chrono::{Local, Timelike};
-
 use std::{fmt, io::Write};
 
 lazy_static! {
@@ -18,20 +17,13 @@ lazy_static! {
         let color_level = color_line.info(Color::Green);
         let builder = Builder::new().format(move |buf, record| {
                 let time_now = Local::now();
-                writeln!(
-                    buf,
-                    "{}{}:{}|RAP-BACK|{:5}|: {}{}\x1B[0m",
-                    format_args!(
-                        "\x1B[{}m",
-                        color_line.get_color(&record.level()).to_fg_str()
-                    ),
+                writeln!(buf,
+                    "{}{}:{}|RAP-BACK|{:5}{}|: {}\x1B[0m",
+                    format_args!("\x1B[{}m",color_line.get_color(&record.level()).to_fg_str()),
                     time_now.hour(),
                     time_now.minute(),
                     color_level.color(record.level()),
-                    format_args!(
-                        "\x1B[{}m",
-                        color_line.get_color(&record.level()).to_fg_str()
-                    ),
+                    format_args!("\x1B[{}m",color_line.get_color(&record.level()).to_fg_str()),
                     record.args()
                 )
             }).filter(None, LevelFilter::Info)

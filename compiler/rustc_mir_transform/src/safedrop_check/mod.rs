@@ -8,7 +8,7 @@ use rustc_data_structures::fx::FxHashSet;
 
 pub mod graph;
 pub mod node;
-pub mod tools;
+pub mod bug;
 pub mod corner_handle;
 pub mod log;
 pub mod utils;
@@ -20,7 +20,7 @@ use extern_log::Log;
 
 pub use graph::*;
 pub use node::*;
-pub use tools::*;
+pub use bug::*;
 pub use corner_handle::*;
 pub use std::fmt;
 

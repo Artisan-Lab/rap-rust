@@ -14,12 +14,16 @@ use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     pub fn output_warning(&self){
+        /* FIXME: we do not want to report the bug of dependent code */
+        if !self.def_id.is_local(){
+            return;
+        }
         if self.bug_records.is_bug_free(){
             return;
         }
         let fn_name = match get_fn_name(self.tcx, self.def_id) {
             Some(name) => name,
-            None => Symbol::intern("unknown"),
+            None => Symbol::intern("no symbol available"),
         };
         self.bug_records.df_bugs_output(fn_name);
         self.bug_records.uaf_bugs_output(fn_name);

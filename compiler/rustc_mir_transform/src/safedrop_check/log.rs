@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use log::{Level, LevelFilter, MetadataBuilder, Record};
 use env_logger::{Builder, Logger, WriteStyle};
 use fern::colors::{Color, ColoredLevelConfig};
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Local, Timelike};
 
 use std::{fmt, io::Write};
 
@@ -22,22 +22,19 @@ lazy_static! {
                 let time_now = Local::now();
                 writeln!(
                     buf,
-                    "{}{}-{}:{}:{}:{} |BACK| |{:5}{}| [{}] {}\x1B[0m",
+                    "{}{}:{}|{}|{}:{}{}\x1B[0m",
                     format_args!(
                         "\x1B[{}m",
                         color_line.get_color(&record.level()).to_fg_str()
                     ),
-                    time_now.month(),
-                    time_now.day(),
                     time_now.hour(),
                     time_now.minute(),
-                    time_now.second(),
+                    record.target(),
                     color_level.color(record.level()),
                     format_args!(
                         "\x1B[{}m",
                         color_line.get_color(&record.level()).to_fg_str()
                     ),
-                    record.target(),
                     record.args()
                 )
             })

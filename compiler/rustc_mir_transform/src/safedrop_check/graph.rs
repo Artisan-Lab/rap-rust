@@ -17,7 +17,7 @@ use rustc_middle::mir::Rvalue;
 use rustc_middle::ty;
 use rustc_span::Span;
 use super::{BugRecords, DROP, DROP_IN_PLACE};
-use super::tools::*;
+use super::bug::*;
 use super::utils::*;
 use super::node::Node;
 use super::node::ReturnResults;
@@ -120,7 +120,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let mut nodes = Vec::<Node>::new();
         let param_env = tcx.param_env(def_id);
         for (local, local_decl) in locals.iter_enumerated() {
-	        let var_name = get_name(tcx, local, local_decl);
+	        let var_name = get_name(tcx, local_decl);
             let need_drop = local_decl.ty.needs_drop(tcx, param_env);
             let is_reserved_type = type_filter(tcx, local_decl.ty);
             let mut node = Node::new(local.as_usize(), local.as_usize(), var_name, need_drop, need_drop || !is_reserved_type);

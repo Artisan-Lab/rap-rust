@@ -158,8 +158,8 @@ fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
         let mut safedrop_graph = SafeDropGraph::new(&body, tcx, def_id);
         safedrop_graph.solve_scc();
         safedrop_graph.safedrop_check(0, tcx, &mut func_map);
-        if safedrop_graph.visit_times <= 10000{ safedrop_graph.output_warning(); }
-        else{ rap_error!("SafeDrop: Over_visited: {:?}", def_id); }
+        if safedrop_graph.visit_times <= 10000 { safedrop_graph.output_warning(); }
+        else{ rap_error!("Over visited: {:?}", def_id); }
     }
 }
 

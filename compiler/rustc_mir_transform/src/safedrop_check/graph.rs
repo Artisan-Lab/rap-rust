@@ -89,6 +89,7 @@ impl<'tcx> BlockNode<'tcx>{
 
 pub struct SafeDropGraph<'tcx>{
     pub def_id: DefId,
+    pub tcx: TyCtxt<'tcx>,
     pub span: Span,
     // contains all varibles (including fields) as nodes.
     pub nodes: Vec<Node>,
@@ -118,9 +119,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let arg_size = body.arg_count;
         let mut nodes = Vec::<Node>::new();
         let param_env = tcx.param_env(def_id);
-        //for ld in 0..locals.len() {
         for (local, local_decl) in locals.iter_enumerated() {
-	    let var_name = get_var_name(tcx, local, local_decl);
+	        let var_name = get_name(tcx, local, local_decl);
             let need_drop = local_decl.ty.needs_drop(tcx, param_env);
             let is_reserved_type = type_filter(tcx, local_decl.ty);
             let mut node = Node::new(local.as_usize(), local.as_usize(), var_name, need_drop, need_drop || !is_reserved_type);
@@ -294,12 +294,6 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         current_node.push(target.as_usize());
                     }
                 },
-                // TerminatorKind::DropAndReplace { place: _, value: _, ref target, ref unwind } => {
-                //     current_node.push(target.as_usize());
-                //     if let Some(target) = unwind {
-                //         current_node.push(target.as_usize());
-                //     }
-                // },
                 TerminatorKind::Call { ref func, args: _, destination: _, ref target, ref unwind, call_source: _, fn_span: _ } => {
                     match func {
                         Operand::Constant(c) => {
@@ -356,6 +350,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
         SafeDropGraph{
             def_id: def_id.clone(),
+            tcx: tcx,
             span: body.span,
             blocks: blocks,
             nodes: nodes,

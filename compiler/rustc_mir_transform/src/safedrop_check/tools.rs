@@ -1,16 +1,14 @@
-use rustc_middle::mir::SourceInfo;
+use rustc_middle::mir::{SourceInfo, Place, ProjectionElem};
 use rustc_middle::ty;
-use rustc_middle::ty::Ty;
-use rustc_middle::mir::Place;
-use rustc_middle::ty::TyCtxt;
-use rustc_middle::mir::ProjectionElem;
+use rustc_middle::ty::{Ty, TyCtxt};
 use rustc_span::Span;
-use rustc_data_structures::fx::FxHashMap;
-use rustc_data_structures::fx::FxHashSet;
+use rustc_span::symbol::Symbol;
+use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use crate::{rap_error, rap_warn};
 use super::{Node, ReturnAssign, ReturnResults, SafeDropGraph, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
 use super::corner_handle::is_corner_adt;
 use super::graph::BlockNode;
+use super::utils::*;
 
 use log::Log;
 
@@ -19,10 +17,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
         if self.bug_records.is_bug_free(){
             return;
         }
-        rap_warn!("Function:{:?};{:?}", self.def_id, self.def_id.index);
-        self.bug_records.df_bugs_output();
-        self.bug_records.uaf_bugs_output();
-        self.bug_records.dp_bug_output(self.span);
+        let fn_name = match get_fn_name(self.tcx, self.def_id) {
+            Some(name) => name,
+            None => Symbol::intern("unknown"),
+        };
+        self.bug_records.df_bugs_output(fn_name);
+        self.bug_records.uaf_bugs_output(fn_name);
+        self.bug_records.dp_bug_output(fn_name);
     }
 
     // assign to the variable _x, we will set the alive of _x and its child nodes a new alive.
@@ -62,19 +63,27 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn df_check(&mut self, drop: usize, span: Span) -> bool{
         let root = self.nodes[drop].index;
+        let symbol = match self.nodes[drop].symbol {
+            Some(symbol) => symbol,
+            None => Symbol::intern("unknown"),
+        };
         if self.nodes[drop].is_alive() == false 
         && self.bug_records.df_bugs.contains_key(&root) == false {
-            self.bug_records.df_bugs.insert(root, span.clone());
+            self.bug_records.df_bugs.insert(root, (symbol, span.clone()));
         }
         return self.nodes[drop].is_alive() == false;
     }
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool){
         let mut record = FxHashSet::default();
+        let symbol = match self.nodes[used].symbol {
+            Some(symbol) => symbol,
+            None => Symbol::intern("unknown"),
+        };
         if self.nodes[used].is_reserved_type() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
         && self.exist_dead(used, &mut record, false) == true 
-        && self.bug_records.uaf_bugs.contains(&span) == false {            
-            self.bug_records.uaf_bugs.insert(span.clone());
+        && self.bug_records.uaf_bugs.contains(&(symbol, span)) == false {            
+            self.bug_records.uaf_bugs.insert((symbol,span.clone()));
         }
     }
 
@@ -84,22 +93,26 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
 
     pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>){
-        if current_block.is_cleanup == false{
+        let symbol = match self.nodes[0].symbol {
+            Some(symbol) => symbol,
+            None => Symbol::intern("unknown"),
+        };
+        if current_block.is_cleanup == false {
             if self.nodes[0].is_reserved_type() && self.dp_check(0){
-                self.bug_records.dp_bug = true;
+                self.bug_records.dp_bugs.insert((symbol,self.span));
             }
             else{
                 for i in 0..self.arg_size{
                     if self.nodes[i+1].is_ptr() && self.dp_check(i+1){
-                        self.bug_records.dp_bug = true;
+                        self.bug_records.dp_bugs.insert((symbol, self.span));
                     }
                 }
             }
         }
         else{
             for i in 0..self.arg_size{
-                if self.nodes[i+1].is_ptr() && self.dp_check(i+1){
-                    self.bug_records.dp_bug_unwind = true;
+                if self.nodes[i+1].is_ptr() && self.dp_check(i+1) {
+                    self.bug_records.dp_bugs_unwind.insert((symbol,self.span));
                 }
             }
         }
@@ -344,55 +357,61 @@ pub struct FuncMap {
     pub set: FxHashSet<usize>,
 }
 
-impl FuncMap{
+impl FuncMap {
     pub fn new() -> FuncMap{
         FuncMap { map: FxHashMap::default(), set: FxHashSet::default()}
     }
 }
 
 //structure to record the existed bugs.
-pub struct BugRecords{
-    pub df_bugs: FxHashMap<usize, Span>,
-    pub df_bugs_unwind: FxHashMap<usize, Span>,
-    pub uaf_bugs: FxHashSet<Span>,
-    pub dp_bug: bool,
-    pub dp_bug_unwind: bool,
+pub struct BugRecords {
+    pub df_bugs: FxHashMap<usize, (Symbol, Span)>,
+    pub df_bugs_unwind: FxHashMap<usize, (Symbol, Span)>,
+    pub uaf_bugs: FxHashSet<(Symbol, Span)>,
+    pub dp_bugs: FxHashSet<(Symbol, Span)>,
+    pub dp_bugs_unwind: FxHashSet<(Symbol, Span)>,
 }
 
 impl BugRecords{
-    pub fn new() -> BugRecords{
-        BugRecords { df_bugs: FxHashMap::default(), df_bugs_unwind: FxHashMap::default(), uaf_bugs: FxHashSet::default(), dp_bug: false, dp_bug_unwind: false}
+    pub fn new() -> BugRecords {
+        BugRecords { df_bugs: FxHashMap::default(), df_bugs_unwind: FxHashMap::default(), uaf_bugs: FxHashSet::default(), dp_bugs: FxHashSet::default(), dp_bugs_unwind: FxHashSet::default()}
     }
 
-    pub fn is_bug_free(&self) -> bool{
-        return self.df_bugs.is_empty() && self.uaf_bugs.is_empty() && self.dp_bug == false && self.dp_bug_unwind == false;
+    pub fn is_bug_free(&self) -> bool {
+        self.df_bugs.is_empty() && self.uaf_bugs.is_empty() && self.dp_bugs.is_empty() && self.dp_bugs_unwind.is_empty()
     }
 
-    pub fn df_bugs_output(&self){
+    pub fn df_bugs_output(&self, fn_name:Symbol) {
         if !self.df_bugs.is_empty() {
-            rap_warn!("SafeDrop: Double Free Detected:");
+            rap_warn!("Double free detected in function {:}", fn_name);
             for i in self.df_bugs.iter() {
-                rap_warn!("Located in {:?}", i.1);
+                rap_warn!("Variable: {:?}
+                          Location: {:?}", i.1.0, i.1.1);
             }
         }
     }
 
-    pub fn uaf_bugs_output(&self){
+    pub fn uaf_bugs_output(&self, fn_name:Symbol) {
         if !self.uaf_bugs.is_empty() {
-            rap_warn!("SafeDrop: Use After Free Detected:");
+            rap_warn!("Use after free detected in function {:?}", fn_name);
             for i in self.uaf_bugs.iter() {
-                rap_warn!("Located in {:?}", i);
+                rap_warn!("Variable: {:?}
+                          Location: {:?}", i.0, i.1);
             }
         }
 
     }
 
-    pub fn dp_bug_output(&self, span: Span){
-        if self.dp_bug{
-            rap_warn!("SafeDrop: Dangling Pointer Detected in {:?}", span);
+    pub fn dp_bug_output(&self, fn_name:Symbol) {
+        for i in self.dp_bugs.iter() {
+            rap_warn!("Dangling pointer detected in function {:?}!!! 
+                      Variable name: {:?}
+                      Location: {:?}", fn_name, i.0, i.1);
         }
-        if self.dp_bug_unwind{
-            rap_warn!("SafeDrop: Dangling Pointer Detected in Unwinding {:?}", span);
+        for i in self.dp_bugs_unwind.iter() {
+            rap_warn!("Dangling pointer detected in function {:?}!!!
+                      Variable name: {:?}
+                      Location: {:?} during unwinding.", fn_name, i.0, i.1);
         }
     }
 }

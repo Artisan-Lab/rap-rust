@@ -28,6 +28,7 @@ const DROP:usize = 1634;
 const DROP_IN_PLACE:usize = 2160;
 const CALL_MUT:usize = 3022;
 const NEXT:usize = 7587;
+const DEPTH_LIMIT:usize = 10000;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     // alias analysis for a single block
@@ -289,9 +290,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
             }
             else{
                 // Other cases in switchInt terminators
-                if let Some(targets) = s_targets{
+                if let Some(targets) = s_targets {
                     for iter in targets.iter(){
-                        if self.visit_times > 10000{
+                        if self.visit_times > DEPTH_LIMIT {
                             continue;
                         }
                         let next_index = iter.1.as_usize();
@@ -313,7 +314,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 }
                 else{
                     for i in current_block.next{
-                        if self.visit_times > 10000{
+                        if self.visit_times > DEPTH_LIMIT {
                             continue;
                         }
                         let next_index = i;

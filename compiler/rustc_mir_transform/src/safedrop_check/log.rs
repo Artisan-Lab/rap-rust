@@ -18,7 +18,7 @@ lazy_static! {
         let builder = Builder::new().format(move |buf, record| {
                 let time_now = Local::now();
                 writeln!(buf,
-                    "{}{}:{}|RAP-BACK|{:5}{}|: {}\x1B[0m",
+                    "{}{}:{}|RAP-BACK|{}{}|: {}\x1B[0m",
                     format_args!("\x1B[{}m",color_line.get_color(&record.level()).to_fg_str()),
                     time_now.hour(),
                     time_now.minute(),

@@ -166,17 +166,17 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.dead_node(drop_local, life_begin, &info, false);
                 },
                 TerminatorKind::Call { func: _,  ref args, .. } => {
-                    let life_begin = self.father_block[bb_index];
-                    assert!(args.len() > 0);
-                    let place = match args[0] {
-                        Operand::Copy(place) => place,
-                        Operand::Move(place) => place,
-                        _ => { rap_error!("Constant operand exists: {:?}", args[0]); return; }
-                    };
-                    let drop_local = self.handle_projection(false, place.local.as_usize(), tcx, place.clone());
-                    let info = drop.source_info.clone();
-                    self.dead_node(drop_local, life_begin, &info, false);
-
+                    if args.len() > 0 {
+                        let life_begin = self.father_block[bb_index];
+                    	let place = match args[0] {
+                        	Operand::Copy(place) => place,
+                        	Operand::Move(place) => place,
+                        	_ => { rap_error!("Constant operand exists: {:?}", args[0]); return; }
+                    	};
+                    	let drop_local = self.handle_projection(false, place.local.as_usize(), tcx, place.clone());
+                    	let info = drop.source_info.clone();
+                    	self.dead_node(drop_local, life_begin, &info, false);
+		    }
                 },
                 _ => {}
             }

@@ -15,8 +15,10 @@ use log::Log;
 impl<'tcx> SafeDropGraph<'tcx>{
     pub fn output_warning(&self){
         /* FIXME: we do not want to report the bug of dependent code */
-        if !self.def_id.is_local(){
-            return;
+	let filename = get_filename(self.tcx, self.def_id);
+        match filename {
+	    Some(filename) => {if filename.contains(".cargo") { return; }},
+            None => {},
         }
         if self.bug_records.is_bug_free(){
             return;

@@ -16,20 +16,17 @@ lazy_static! {
             .trace(Color::BrightBlack);
 
         let color_level = color_line.info(Color::Green);
-
-        let builder = Builder::new()
-            .format(move |buf, record| {
+        let builder = Builder::new().format(move |buf, record| {
                 let time_now = Local::now();
                 writeln!(
                     buf,
-                    "{}{}:{}|{}|{}:{}{}\x1B[0m",
+                    "{}{}:{}|RAP-BACK|{:5}|: {}{}\x1B[0m",
                     format_args!(
                         "\x1B[{}m",
                         color_line.get_color(&record.level()).to_fg_str()
                     ),
                     time_now.hour(),
                     time_now.minute(),
-                    record.target(),
                     color_level.color(record.level()),
                     format_args!(
                         "\x1B[{}m",
@@ -37,11 +34,9 @@ lazy_static! {
                     ),
                     record.args()
                 )
-            })
-            .filter(None, LevelFilter::Info)
+            }).filter(None, LevelFilter::Info)
             .write_style(WriteStyle::Always)
-            .build()
-        ;
+            .build();
         builder
     };
 }
@@ -56,9 +51,7 @@ pub enum RapLogLevel {
 }
 
 pub fn record_msg(args: fmt::Arguments<'_>, level: RapLogLevel) -> Record<'_> {
-    let meta = MetadataBuilder::new()
-        .target("RAP")
-        .level(
+    let meta = MetadataBuilder::new().target("RAP").level(
             match level {
                 RapLogLevel::Info => Level::Info,
                 RapLogLevel::Debug => Level::Debug,
@@ -66,14 +59,8 @@ pub fn record_msg(args: fmt::Arguments<'_>, level: RapLogLevel) -> Record<'_> {
                 RapLogLevel::Error => Level::Error,
                 RapLogLevel::Warn => Level::Warn,
             }
-        )
-        .build();
-
-    let record = Record::builder()
-        .metadata(meta)
-        .args(args.clone())
-        .build();
-
+        ).build();
+    let record = Record::builder().metadata(meta).args(args.clone()).build();
     record
 }
 

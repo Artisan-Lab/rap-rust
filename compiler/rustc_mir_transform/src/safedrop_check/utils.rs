@@ -1,26 +1,27 @@
 use rustc_middle::ty::TyCtxt;
-use rustc_middle::mir::LocalDecl;
 use rustc_span::symbol::Symbol;
 use rustc_span::def_id::DefId;
 use rustc_span::{FileName, FileNameDisplayPreference};
+use rustc_middle::mir::LocalDecl;
 
-/// Extract the variable name using `Local` and `LocalDecl`.
-pub fn get_name<'tcx>(tcx: TyCtxt<'tcx>, local_decl: &LocalDecl<'tcx>) -> Option<Symbol> {
+/* FIXME */
+pub fn get_var_name<'tcx>(tcx: TyCtxt<'tcx>, local_decl: &LocalDecl<'tcx>) -> Option<Symbol> {
     let span = local_decl.source_info.span;
     let name = tcx.sess.source_map().span_to_snippet(span).ok()?;
     Some(Symbol::intern(&name))
 }
 
 pub fn get_fn_name(tcx: TyCtxt<'_>, def_id: DefId) -> Option<Symbol> {
-    // Check if the DefId corresponds to a local crate
     if def_id.is_local() {
-        // Use the HIR map to get the HIR item
-        if let Some(item) = tcx.hir().find_by_def_id(def_id.expect_local()) {
-            // Extract the name if it's an item (e.g., a function)
-            if let rustc_hir::Node::Item(item) = item {
-                if let rustc_hir::ItemKind::Fn(..) = item.kind {
+        if let Some(node) = tcx.hir().get_if_local(def_id) {
+	    match node {
+		rustc_hir::Node::Item(item) => {
                     return Some(item.ident.name);
-                }
+                },
+	        rustc_hir::Node::ImplItem(item) => {
+                    return Some(item.ident.name);
+		},
+		_ => { return None },
             }
         }
     }

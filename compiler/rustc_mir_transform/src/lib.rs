@@ -118,7 +118,7 @@ use rustc_fluent_macro::fluent_messages;
 
 pub mod safedrop_check;
 
-use safedrop_check::{SafeDropGraph, FuncMap, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
+use safedrop_check::{SafeDropGraph, VISIT_LIMIT, FuncMap, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
 use log::Log;
 
 fluent_messages! { "../messages.ftl" }
@@ -149,7 +149,7 @@ pub fn provide(providers: &mut Providers) {
 }
 
 fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
-    if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()){
+    if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()) {
         return;
     }
     if tcx.is_mir_available(def_id) {
@@ -158,8 +158,11 @@ fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
         let mut safedrop_graph = SafeDropGraph::new(&body, tcx, def_id);
         safedrop_graph.solve_scc();
         safedrop_graph.safedrop_check(0, tcx, &mut func_map);
-        if safedrop_graph.visit_times <= 10000 { safedrop_graph.output_warning(); }
-        else{ rap_error!("Over visited: {:?}", def_id); }
+        if safedrop_graph.visit_times <= VISIT_LIMIT { 
+	    safedrop_graph.output_warning(); 
+	} else { 
+	    rap_error!("Over visited: {:?}", def_id); 
+	}
     }
 }
 

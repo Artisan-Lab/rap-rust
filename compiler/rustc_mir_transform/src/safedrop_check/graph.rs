@@ -18,7 +18,6 @@ use rustc_middle::ty;
 use rustc_span::Span;
 use super::{BugRecords, DROP, DROP_IN_PLACE};
 use super::bug::*;
-use super::utils::*;
 use super::node::Node;
 use super::node::ReturnResults;
 
@@ -120,10 +119,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let mut nodes = Vec::<Node>::new();
         let param_env = tcx.param_env(def_id);
         for (local, local_decl) in locals.iter_enumerated() {
-	    let var_name = get_var_name(tcx, local_decl);
             let need_drop = local_decl.ty.needs_drop(tcx, param_env);
             let is_reserved_type = type_filter(tcx, local_decl.ty);
-            let mut node = Node::new(local.as_usize(), local.as_usize(), var_name, need_drop, need_drop || !is_reserved_type);
+            let mut node = Node::new(local.as_usize(), local.as_usize(), need_drop, need_drop || !is_reserved_type);
             node.kind = kind(local_decl.ty);
             nodes.push(node);
         }
@@ -192,9 +190,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         },
                         Rvalue::ShallowInitBox(ref x, _) => {
                             if nodes[left_ssa].sons.contains_key(&0) == false{
-                                let mut node = Node::new(left_ssa, nodes.len(), None, false, true);
-                                let mut node1 = Node::new(left_ssa, nodes.len() + 1, None, false, true);
-                                let mut node2 = Node::new(left_ssa, nodes.len() + 2, None, false, true);
+                                let mut node = Node::new(left_ssa, nodes.len(), false, true);
+                                let mut node1 = Node::new(left_ssa, nodes.len() + 1, false, true);
+                                let mut node2 = Node::new(left_ssa, nodes.len() + 2, false, true);
                                 node.alive = nodes[left_ssa].alive;
                                 node1.alive = node.alive;
                                 node2.alive = node.alive;

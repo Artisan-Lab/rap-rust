@@ -28,7 +28,8 @@ const DROP:usize = 1634;
 const DROP_IN_PLACE:usize = 2160;
 const CALL_MUT:usize = 3022;
 const NEXT:usize = 7587;
-const DEPTH_LIMIT:usize = 10000;
+
+pub const VISIT_LIMIT:usize = 10000;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     // alias analysis for a single block
@@ -186,7 +187,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
     // the core function of the safedrop.
     pub fn safedrop_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap){
         self.visit_times += 1;
-        if self.visit_times > 10000{
+        if self.visit_times > VISIT_LIMIT {
             return;
         }
         let current_block = self.blocks[self.father_block[bb_index]].clone();
@@ -292,7 +293,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 // Other cases in switchInt terminators
                 if let Some(targets) = s_targets {
                     for iter in targets.iter(){
-                        if self.visit_times > DEPTH_LIMIT {
+                        if self.visit_times > VISIT_LIMIT {
                             continue;
                         }
                         let next_index = iter.1.as_usize();
@@ -314,7 +315,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 }
                 else{
                     for i in current_block.next{
-                        if self.visit_times > DEPTH_LIMIT {
+                        if self.visit_times > VISIT_LIMIT {
                             continue;
                         }
                         let next_index = i;

@@ -46,96 +46,84 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
     }
 
-    pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool{
+    pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool {
         //if is a dangling pointer check, only check the pointer type varible.
-        if self.nodes[node].is_alive() == false && (dangling && self.nodes[node].is_ptr() || !dangling){
+        if self.nodes[node].is_alive() == false && (dangling && self.nodes[node].is_ptr() || !dangling) {
             return true; 
         }
         record.insert(node);
         if self.nodes[node].alias[0] != node{
             for i in self.nodes[node].alias.clone().into_iter(){
-                if i != node && record.contains(&i) == false && self.exist_dead(i, record, dangling){
+                if i != node && record.contains(&i) == false && self.exist_dead(i, record, dangling) {
                     return true;
                 }
             }
         }
         for i in self.nodes[node].sons.clone().into_iter(){
-            if record.contains(&i.1) == false && self.exist_dead(i.1, record, dangling){
+            if record.contains(&i.1) == false && self.exist_dead(i.1, record, dangling) {
                 return true;
             }
         }
         return false;
     }
 
-    pub fn df_check(&mut self, drop: usize, span: Span) -> bool{
+    pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
         let root = self.nodes[drop].index;
-        let symbol = match self.nodes[drop].symbol {
-            Some(symbol) => symbol,
-            None => Symbol::intern("unknown"),
-        };
         if self.nodes[drop].is_alive() == false 
         && self.bug_records.df_bugs.contains_key(&root) == false {
-            self.bug_records.df_bugs.insert(root, (symbol, span.clone()));
+            self.bug_records.df_bugs.insert(root, span.clone());
         }
         return self.nodes[drop].is_alive() == false;
     }
 
-    pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool){
+    pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool) {
         let mut record = FxHashSet::default();
-        let symbol = match self.nodes[used].symbol {
-            Some(symbol) => symbol,
-            None => Symbol::intern("unknown"),
-        };
         if self.nodes[used].is_reserved_type() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
         && self.exist_dead(used, &mut record, false) == true 
-        && self.bug_records.uaf_bugs.contains(&(symbol, span)) == false {            
-            self.bug_records.uaf_bugs.insert((symbol,span.clone()));
+        && self.bug_records.uaf_bugs.contains(&span) == false {            
+            self.bug_records.uaf_bugs.insert(span.clone());
         }
     }
 
-    pub fn dp_check(&self, local: usize) -> bool{
+    pub fn dp_check(&self, local: usize) -> bool {
         let mut record = FxHashSet::default();
         return self.exist_dead(local, &mut record, local != 0);
     }
 
-    pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>){
-        let symbol = match self.nodes[0].symbol {
-            Some(symbol) => symbol,
-            None => Symbol::intern("unknown"),
-        };
+    pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>) {
         if current_block.is_cleanup == false {
             if self.nodes[0].is_reserved_type() && self.dp_check(0){
-                self.bug_records.dp_bugs.insert((symbol,self.span));
+                self.bug_records.dp_bugs.insert(self.span);
             }
             else{
-                for i in 0..self.arg_size{
-                    if self.nodes[i+1].is_ptr() && self.dp_check(i+1){
-                        self.bug_records.dp_bugs.insert((symbol, self.span));
-                    }
+                for i in 0..self.arg_size {
+                    if self.nodes[i+1].is_ptr() && self.dp_check(i+1) {
+                        self.bug_records.dp_bugs.insert(self.span);
+                     }
                 }
             }
         }
         else{
             for i in 0..self.arg_size{
                 if self.nodes[i+1].is_ptr() && self.dp_check(i+1) {
-                    self.bug_records.dp_bugs_unwind.insert((symbol,self.span));
+                    self.bug_records.dp_bugs_unwind.insert(self.span);
                 }
             }
         }
     }
 
-    pub fn dead_node(&mut self, drop: usize, life_begin: usize, info: &SourceInfo, alias: bool){
+    pub fn dead_node(&mut self, drop: usize, life_begin: usize, info: &SourceInfo, alias: bool) {
         //Rc drop
-        if self.nodes[drop].is_corner_case(){
+        if self.nodes[drop].is_corner_case() {
             return;
-        }
+        } 
         //check if there is a double free bug.
-        if self.df_check(drop, info.span){
+        if self.df_check(drop, info.span) {
             return;
         }
         //drop their alias
-        if self.nodes[drop].alias[0] != drop{
-            for i in self.nodes[drop].alias.clone().into_iter(){
+        if self.nodes[drop].alias[0] != drop {
+            for i in self.nodes[drop].alias.clone().into_iter() {
                 if self.nodes[i].is_ref(){
                     continue;
                 }
@@ -144,23 +132,23 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         //drop the sons of the root node.
         //alias flag is used to avoid the sons of the alias are dropped repeatly.
-        if alias == false{
-            for i in self.nodes[drop].sons.clone().into_iter(){
-                if self.nodes[drop].is_tuple() == true && self.nodes[i.1].need_drop() == false{
+        if alias == false {
+            for i in self.nodes[drop].sons.clone().into_iter() {
+                if self.nodes[drop].is_tuple() == true && self.nodes[i.1].need_drop() == false {
                     continue;
-                }
+                } 
                 self.dead_node( i.1, life_begin, info, false);
             }
         }
         //SCC.
-        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].is_reserved_type(){
+        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].is_reserved_type() {
             self.nodes[drop].dead();   
         }
     }
 
     // field-sensitive fetch instruction for a variable.
     // is_right: 2 = 1.0; 0 = 2.0; => 0 = 1.0.0;   
-    pub fn handle_projection(&mut self, is_right: bool, local: usize, tcx: TyCtxt<'tcx>, place: Place<'tcx>) -> usize{
+    pub fn handle_projection(&mut self, is_right: bool, local: usize, tcx: TyCtxt<'tcx>, place: Place<'tcx>) -> usize {
         let mut init_local = local;
         let mut current_local = local;
         for projection in place.projection{
@@ -169,7 +157,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     if current_local == self.nodes[current_local].alias[0] && self.nodes[current_local].is_ref() == false{
                         let need_drop = true;
                         let is_reserved_type = true;
-                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), None, need_drop, need_drop || !is_reserved_type);
+                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), need_drop, need_drop || !is_reserved_type);
                         node.kind = 1; //TODO
                         node.alive = self.nodes[current_local].alive;
                         self.nodes[current_local].alias[0] = self.nodes.len();
@@ -180,15 +168,15 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 }
                 ProjectionElem::Field(field, ty) =>{
                     let index = field.as_usize();
-                    if is_right && self.nodes[current_local].alias[0] != current_local{
+                    if is_right && self.nodes[current_local].alias[0] != current_local {
                         current_local = self.nodes[current_local].alias[0];
                         init_local = self.nodes[current_local].index;
                     }
-                    if self.nodes[current_local].sons.contains_key(&index) == false{
+                    if self.nodes[current_local].sons.contains_key(&index) == false {
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
                         let is_reserved_type = type_filter(tcx, ty);
-                        let mut node = Node::new(init_local, self.nodes.len(), None, need_drop, need_drop || !is_reserved_type);
+                        let mut node = Node::new(init_local, self.nodes.len(), need_drop, need_drop || !is_reserved_type);
                         node.kind = kind(ty);
                         node.alive = self.nodes[current_local].alive;
                         node.field_info = self.nodes[current_local].field_info.clone();
@@ -205,28 +193,29 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
 
     //merge the result of current path to the final result.
-    pub fn merge_results(&mut self, results_nodes: Vec<Node>, is_cleanup: bool){
+    pub fn merge_results(&mut self, results_nodes: Vec<Node>, is_cleanup: bool) {
         for node in results_nodes.iter(){
             if node.index <= self.arg_size{
-                if node.alias[0] != node.local || node.alias.len() > 1{
+                if node.alias[0] != node.local || node.alias.len() > 1 {
                     for alias in node.alias.clone(){
                         if results_nodes[alias].index <= self.arg_size
                         && !self.return_set.contains(&(node.local, alias))
                         && alias != node.local
-                        && node.index != results_nodes[alias].index{
+                        && node.index != results_nodes[alias].index {
                             self.return_set.insert((node.local, alias));
                             let left_node = node;
                             let right_node = &results_nodes[alias];
                             let mut new_assign = ReturnAssign::new(0, 
                                 left_node.index, left_node.is_reserved_type(), left_node.need_drop(),
-                                right_node.index, right_node.is_reserved_type(), right_node.need_drop());
+                                right_node.index, right_node.is_reserved_type(), right_node.need_drop()
+			    );
                             new_assign.left = left_node.field_info.clone();
                             new_assign.right = right_node.field_info.clone();
                             self.return_results.assignments.push(new_assign);
                         }
                     }
                 }
-                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size{
+                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
                     self.return_results.dead.insert(node.local);
                 }
             }
@@ -240,7 +229,7 @@ pub fn kind<'tcx>(current_ty: Ty<'tcx>) -> usize {
         ty::Ref(..) => 4,
         ty::Tuple(..) => 2,
         ty::Adt(ref adt_def, _) => {
-            if is_corner_adt(format!("{:?}", adt_def)){
+            if is_corner_adt(format!("{:?}", adt_def)) {
                 return 3;
             }
             else{
@@ -294,7 +283,7 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
     }
     for son in nodes[right_ssa].sons.clone().into_iter(){
         if nodes[left_ssa].sons.contains_key(&son.0) == false{
-            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), None, nodes[son.1].need_drop(), nodes[son.1].is_reserved_type());
+            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), nodes[son.1].need_drop(), nodes[son.1].is_reserved_type());
             node.kind = nodes[son.1].kind;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -308,8 +297,8 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
 }
 
 //inter-procedure instruction to merge alias.
-pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &ReturnAssign, arg_vec: &Vec<usize>){
-    if assign.left_index >= arg_vec.len(){
+pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &ReturnAssign, arg_vec: &Vec<usize>) {
+    if assign.left_index >= arg_vec.len() {
         rap_error!("SafeDrop: Vector warning!");
         return;
     }
@@ -321,11 +310,11 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
     let mut right_init = arg_vec[assign.right_index];
     let mut left_ssa = left_init;
     let mut right_ssa = right_init;
-    for index in assign.left.iter(){
-        if nodes[left_ssa].sons.contains_key(&index) == false{
+    for index in assign.left.iter() {
+        if nodes[left_ssa].sons.contains_key(&index) == false {
             let need_drop = assign.left_need_drop;
             let is_reserved_type = assign.left_is_reserved_type;
-            let mut node = Node::new(left_init, nodes.len(), None, need_drop, is_reserved_type);
+            let mut node = Node::new(left_init, nodes.len(), need_drop, is_reserved_type);
             node.kind = 1;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -335,15 +324,15 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
         }
         left_ssa = *nodes[left_ssa].sons.get(&index).unwrap();
     }
-    for index in assign.right.iter(){
-        if nodes[right_ssa].alias[0] != right_ssa{
+    for index in assign.right.iter() {
+        if nodes[right_ssa].alias[0] != right_ssa {
             right_ssa = nodes[right_ssa].alias[0];
             right_init = nodes[right_ssa].index;
         }
-        if nodes[right_ssa].sons.contains_key(&index) == false{
+        if nodes[right_ssa].sons.contains_key(&index) == false {
             let need_drop = assign.right_need_drop;
             let is_reserved_type = assign.right_is_reserved_type;
-            let mut node = Node::new(right_init, nodes.len(), None, need_drop, is_reserved_type);
+            let mut node = Node::new(right_init, nodes.len(), need_drop, is_reserved_type);
             node.kind = 1;
             node.alive = nodes[right_ssa].alive;
             node.field_info = nodes[right_ssa].field_info.clone();
@@ -364,18 +353,18 @@ pub struct FuncMap {
 }
 
 impl FuncMap {
-    pub fn new() -> FuncMap{
-        FuncMap { map: FxHashMap::default(), set: FxHashSet::default()}
+    pub fn new() -> FuncMap {
+        FuncMap { map: FxHashMap::default(), set: FxHashSet::default() }
     }
 }
 
 //structure to record the existed bugs.
 pub struct BugRecords {
-    pub df_bugs: FxHashMap<usize, (Symbol, Span)>,
-    pub df_bugs_unwind: FxHashMap<usize, (Symbol, Span)>,
-    pub uaf_bugs: FxHashSet<(Symbol, Span)>,
-    pub dp_bugs: FxHashSet<(Symbol, Span)>,
-    pub dp_bugs_unwind: FxHashSet<(Symbol, Span)>,
+    pub df_bugs: FxHashMap<usize, Span>,
+    pub df_bugs_unwind: FxHashMap<usize, Span>,
+    pub uaf_bugs: FxHashSet<Span>,
+    pub dp_bugs: FxHashSet<Span>,
+    pub dp_bugs_unwind: FxHashSet<Span>,
 }
 
 impl BugRecords{
@@ -391,8 +380,7 @@ impl BugRecords{
         if !self.df_bugs.is_empty() {
             rap_warn!("Double free detected in function {:}", fn_name);
             for i in self.df_bugs.iter() {
-                rap_warn!("Variable: {:?}
-                          Location: {:?}", i.1.0, i.1.1);
+                rap_warn!("Location: {:?}", i.1);
             }
         }
     }
@@ -401,8 +389,7 @@ impl BugRecords{
         if !self.uaf_bugs.is_empty() {
             rap_warn!("Use after free detected in function {:?}", fn_name);
             for i in self.uaf_bugs.iter() {
-                rap_warn!("Variable: {:?}
-                          Location: {:?}", i.0, i.1);
+                rap_warn!("Location: {:?}", i);
             }
         }
 
@@ -411,13 +398,11 @@ impl BugRecords{
     pub fn dp_bug_output(&self, fn_name:Symbol) {
         for i in self.dp_bugs.iter() {
             rap_warn!("Dangling pointer detected in function {:?}!!! 
-                      Variable name: {:?}
-                      Location: {:?}", fn_name, i.0, i.1);
+                      Location: {:?}", fn_name, i);
         }
         for i in self.dp_bugs_unwind.iter() {
             rap_warn!("Dangling pointer detected in function {:?}!!!
-                      Variable name: {:?}
-                      Location: {:?} during unwinding.", fn_name, i.0, i.1);
+                      Location: {:?} during unwinding.", fn_name, i);
         }
     }
 }

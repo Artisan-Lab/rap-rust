@@ -1,11 +1,9 @@
 use rustc_data_structures::{fx::FxHashMap, fx::FxHashSet};
-use rustc_span::Symbol;
 
 #[derive(Debug,Clone)]
 pub struct Node{
     pub index: usize,
     pub local: usize,
-    pub symbol: Option<Symbol>,
     need_drop: bool,
     is_reserved_type: bool,
     pub kind: usize,
@@ -17,10 +15,10 @@ pub struct Node{
 }
 
 impl Node{
-    pub fn new(index: usize, local: usize, symbol: Option<Symbol>, need_drop: bool, is_reserved_type: bool) -> Node{
+    pub fn new(index: usize, local: usize, need_drop: bool, is_reserved_type: bool) -> Node{
         let mut eq = Vec::new();
         eq.push(local);
-        Node { index: index, local: local, symbol: symbol, need_drop: need_drop, father: local, alias: eq, alive: 0, is_reserved_type: is_reserved_type, kind: 0, sons: FxHashMap::default(), field_info: Vec::<usize>::new()}
+        Node { index: index, local: local, need_drop: need_drop, father: local, alias: eq, alive: 0, is_reserved_type: is_reserved_type, kind: 0, sons: FxHashMap::default(), field_info: Vec::<usize>::new()}
     }
 
     pub fn need_drop(&self) -> bool{

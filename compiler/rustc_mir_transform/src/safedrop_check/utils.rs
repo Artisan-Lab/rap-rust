@@ -4,11 +4,8 @@ use rustc_span::def_id::DefId;
 use rustc_span::{FileName, FileNameDisplayPreference};
 use rustc_middle::mir::LocalDecl;
 
-/* FIXME */
-pub fn get_var_name<'tcx>(tcx: TyCtxt<'tcx>, local_decl: &LocalDecl<'tcx>) -> Option<Symbol> {
-    let span = local_decl.source_info.span;
-    let name = tcx.sess.source_map().span_to_snippet(span).ok()?;
-    Some(Symbol::intern(&name))
+pub fn get_type_name<'tcx>(local_decl: &LocalDecl<'tcx>) -> String {
+    local_decl.ty.to_string()
 }
 
 pub fn get_fn_name(tcx: TyCtxt<'_>, def_id: DefId) -> Option<Symbol> {

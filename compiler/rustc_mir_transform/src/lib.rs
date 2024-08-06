@@ -149,6 +149,7 @@ pub fn provide(providers: &mut Providers) {
 }
 
 fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
+    /* filter const mir */
     if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()) {
         return;
     }
@@ -159,10 +160,10 @@ fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
         safedrop_graph.solve_scc();
         safedrop_graph.safedrop_check(0, tcx, &mut func_map);
         if safedrop_graph.visit_times <= VISIT_LIMIT { 
-	    safedrop_graph.output_warning(); 
-	} else { 
-	    rap_error!("Over visited: {:?}", def_id); 
-	}
+	         safedrop_graph.report_bugs(); 
+	    } else { 
+	        rap_error!("Over visited: {:?}", def_id); 
+	    }
     }
 }
 

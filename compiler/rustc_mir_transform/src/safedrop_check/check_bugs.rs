@@ -1,23 +1,21 @@
 use rustc_middle::mir::{SourceInfo, Place, ProjectionElem};
-use rustc_middle::ty;
-use rustc_middle::ty::{Ty, TyCtxt};
+use rustc_middle::ty::{TyCtxt};
 use rustc_span::Span;
 use rustc_span::symbol::Symbol;
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
-use crate::{rap_error, rap_warn};
-use super::{Node, ReturnAssign, ReturnResults, SafeDropGraph, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
-use super::corner_handle::is_corner_adt;
+use rustc_data_structures::fx::{FxHashSet};
+use crate::{rap_error};
+use super::{Node, ReturnAssign, SafeDropGraph, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
 use super::graph::BlockNode;
 use super::utils::*;
+use super::types::*;
 
 use log::Log;
 
-impl<'tcx> SafeDropGraph<'tcx>{
-    pub fn output_warning(&self){
-        /* FIXME: we do not want to report the bug of dependent code */
-	let filename = get_filename(self.tcx, self.def_id);
+impl<'tcx> SafeDropGraph<'tcx> {
+    pub fn report_bugs(&self) {
+	    let filename = get_filename(self.tcx, self.def_id);
         match filename {
-	    Some(filename) => {if filename.contains(".cargo") { return; }},
+	        Some(filename) => {if filename.contains(".cargo") { return; }},
             None => {},
         }
         if self.bug_records.is_bug_free(){
@@ -78,7 +76,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool) {
         let mut record = FxHashSet::default();
-        if self.nodes[used].is_reserved_type() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
+        if self.nodes[used].may_drop() && (!self.nodes[used].is_ptr() || self.nodes[used].index != origin || is_func_call)
         && self.exist_dead(used, &mut record, false) == true 
         && self.bug_records.uaf_bugs.contains(&span) == false {            
             self.bug_records.uaf_bugs.insert(span.clone());
@@ -92,7 +90,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>) {
         if current_block.is_cleanup == false {
-            if self.nodes[0].is_reserved_type() && self.dp_check(0){
+            if self.nodes[0].may_drop() && self.dp_check(0){
                 self.bug_records.dp_bugs.insert(self.span);
             }
             else{
@@ -141,7 +139,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             }
         }
         //SCC.
-        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].is_reserved_type() {
+        if self.nodes[drop].alive < life_begin as isize && self.nodes[drop].may_drop() {
             self.nodes[drop].dead();   
         }
     }
@@ -156,8 +154,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 ProjectionElem::Deref => {
                     if current_local == self.nodes[current_local].alias[0] && self.nodes[current_local].is_ref() == false{
                         let need_drop = true;
-                        let is_reserved_type = true;
-                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), need_drop, need_drop || !is_reserved_type);
+                        let may_drop = true;
+                        let mut node = Node::new(self.nodes.len(), self.nodes.len(), need_drop, may_drop);
                         node.kind = 1; //TODO
                         node.alive = self.nodes[current_local].alive;
                         self.nodes[current_local].alias[0] = self.nodes.len();
@@ -175,8 +173,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     if self.nodes[current_local].sons.contains_key(&index) == false {
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
-                        let is_reserved_type = type_filter(tcx, ty);
-                        let mut node = Node::new(init_local, self.nodes.len(), need_drop, need_drop || !is_reserved_type);
+                        let may_drop = !is_not_drop(tcx, ty);
+                        let mut node = Node::new(init_local, self.nodes.len(), need_drop, need_drop || may_drop);
                         node.kind = kind(ty);
                         node.alive = self.nodes[current_local].alive;
                         node.field_info = self.nodes[current_local].field_info.clone();
@@ -206,8 +204,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             let left_node = node;
                             let right_node = &results_nodes[alias];
                             let mut new_assign = ReturnAssign::new(0, 
-                                left_node.index, left_node.is_reserved_type(), left_node.need_drop(),
-                                right_node.index, right_node.is_reserved_type(), right_node.need_drop()
+                                left_node.index, left_node.may_drop(), left_node.need_drop(),
+                                right_node.index, right_node.may_drop(), right_node.need_drop()
 			    );
                             new_assign.left = left_node.field_info.clone();
                             new_assign.right = right_node.field_info.clone();
@@ -220,51 +218,6 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 }
             }
         }
-    }
-}
-
-pub fn kind<'tcx>(current_ty: Ty<'tcx>) -> usize {
-    match current_ty.kind() {
-        ty::RawPtr(..) => 1,
-        ty::Ref(..) => 4,
-        ty::Tuple(..) => 2,
-        ty::Adt(ref adt_def, _) => {
-            if is_corner_adt(format!("{:?}", adt_def)) {
-                return 3;
-            }
-            else{
-                return 0;
-            }
-        },
-        _ => 0,
-    }
-}
-
-pub fn type_filter<'tcx>(tcx: TyCtxt<'tcx>, current_ty: Ty<'tcx>) -> bool {
-    match current_ty.kind() {
-        ty::Bool
-        | ty::Char
-        | ty::Int(_)
-        | ty::Uint(_)
-        | ty::Float(_) => true,
-        ty::Array(ref tys,_) => type_filter(tcx, *tys),
-        ty::Adt(ref adtdef, ref substs) => {
-            for field in adtdef.all_fields() {
-                if !type_filter(tcx, field.ty(tcx, substs)) {
-                    return false;
-                }
-            }
-            true
-        },
-        ty::Tuple(ref tuple_fields) => {
-            for tys in tuple_fields.iter() {
-                if !type_filter(tcx, tys) {
-                    return false;
-                }
-            }
-            true
-        },
-        _ => false,
     }
 }
 
@@ -283,7 +236,7 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
     }
     for son in nodes[right_ssa].sons.clone().into_iter(){
         if nodes[left_ssa].sons.contains_key(&son.0) == false{
-            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), nodes[son.1].need_drop(), nodes[son.1].is_reserved_type());
+            let mut node = Node::new(nodes[left_ssa].index, nodes.len(), nodes[son.1].need_drop(), nodes[son.1].may_drop());
             node.kind = nodes[son.1].kind;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -313,8 +266,8 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
     for index in assign.left.iter() {
         if nodes[left_ssa].sons.contains_key(&index) == false {
             let need_drop = assign.left_need_drop;
-            let is_reserved_type = assign.left_is_reserved_type;
-            let mut node = Node::new(left_init, nodes.len(), need_drop, is_reserved_type);
+            let may_drop = assign.left_may_drop;
+            let mut node = Node::new(left_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
             node.alive = nodes[left_ssa].alive;
             node.field_info = nodes[left_ssa].field_info.clone();
@@ -331,8 +284,8 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
         }
         if nodes[right_ssa].sons.contains_key(&index) == false {
             let need_drop = assign.right_need_drop;
-            let is_reserved_type = assign.right_is_reserved_type;
-            let mut node = Node::new(right_init, nodes.len(), need_drop, is_reserved_type);
+            let may_drop = assign.right_may_drop;
+            let mut node = Node::new(right_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
             node.alive = nodes[right_ssa].alive;
             node.field_info = nodes[right_ssa].field_info.clone();
@@ -343,66 +296,4 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Node>, assign: &Re
         right_ssa = *nodes[right_ssa].sons.get(&index).unwrap();
     }
     merge_alias(move_set, left_ssa, right_ssa, nodes);
-}
-
-//struct to cache the results for analyzed functions.
-#[derive(Clone)]
-pub struct FuncMap {
-    pub map: FxHashMap<usize, ReturnResults>,
-    pub set: FxHashSet<usize>,
-}
-
-impl FuncMap {
-    pub fn new() -> FuncMap {
-        FuncMap { map: FxHashMap::default(), set: FxHashSet::default() }
-    }
-}
-
-//structure to record the existed bugs.
-pub struct BugRecords {
-    pub df_bugs: FxHashMap<usize, Span>,
-    pub df_bugs_unwind: FxHashMap<usize, Span>,
-    pub uaf_bugs: FxHashSet<Span>,
-    pub dp_bugs: FxHashSet<Span>,
-    pub dp_bugs_unwind: FxHashSet<Span>,
-}
-
-impl BugRecords{
-    pub fn new() -> BugRecords {
-        BugRecords { df_bugs: FxHashMap::default(), df_bugs_unwind: FxHashMap::default(), uaf_bugs: FxHashSet::default(), dp_bugs: FxHashSet::default(), dp_bugs_unwind: FxHashSet::default()}
-    }
-
-    pub fn is_bug_free(&self) -> bool {
-        self.df_bugs.is_empty() && self.uaf_bugs.is_empty() && self.dp_bugs.is_empty() && self.dp_bugs_unwind.is_empty()
-    }
-
-    pub fn df_bugs_output(&self, fn_name:Symbol) {
-        if !self.df_bugs.is_empty() {
-            rap_warn!("Double free detected in function {:}", fn_name);
-            for i in self.df_bugs.iter() {
-                rap_warn!("Location: {:?}", i.1);
-            }
-        }
-    }
-
-    pub fn uaf_bugs_output(&self, fn_name:Symbol) {
-        if !self.uaf_bugs.is_empty() {
-            rap_warn!("Use after free detected in function {:?}", fn_name);
-            for i in self.uaf_bugs.iter() {
-                rap_warn!("Location: {:?}", i);
-            }
-        }
-
-    }
-
-    pub fn dp_bug_output(&self, fn_name:Symbol) {
-        for i in self.dp_bugs.iter() {
-            rap_warn!("Dangling pointer detected in function {:?}!!! 
-                      Location: {:?}", fn_name, i);
-        }
-        for i in self.dp_bugs_unwind.iter() {
-            rap_warn!("Dangling pointer detected in function {:?}!!!
-                      Location: {:?} during unwinding.", fn_name, i);
-        }
-    }
 }

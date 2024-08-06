@@ -8,8 +8,10 @@ use rustc_data_structures::fx::FxHashSet;
 
 pub mod graph;
 pub mod node;
-pub mod bug;
+pub mod bug_records;
+pub mod check_bugs;
 pub mod corner_handle;
+pub mod types;
 pub mod log;
 pub mod utils;
 
@@ -20,8 +22,10 @@ use extern_log::Log;
 
 pub use graph::*;
 pub use node::*;
-pub use bug::*;
+pub use bug_records::*;
+pub use check_bugs::*;
 pub use corner_handle::*;
+pub use types::*;
 pub use std::fmt;
 
 const DROP:usize = 1634;
@@ -67,9 +71,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.nodes[left_ssa].alive = self.father_block[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(left_ssa);
-                    let mut is_reserved_type_flag = 0;
-                    if self.nodes[left_ssa].is_reserved_type() {
-                        is_reserved_type_flag += 1;
+                    let mut may_drop_flag = 0;
+                    if self.nodes[left_ssa].may_drop() {
+                        may_drop_flag += 1;
                     }
                     for arg in args {
                         match arg {
@@ -77,16 +81,16 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].is_reserved_type() {
-                                    is_reserved_type_flag += 1;
+                                if self.nodes[right_ssa].may_drop() {
+                                    may_drop_flag += 1;
                                 }
                             },
                             Operand::Move(ref p) => {
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].is_reserved_type() {
-                                    is_reserved_type_flag += 1;
+                                if self.nodes[right_ssa].may_drop() {
+                                    may_drop_flag += 1;
                                 }
                             },
                             Operand::Constant(_) => {
@@ -95,7 +99,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                     }
                     if let ty::FnDef(ref target_id, _) = constant.const_.ty().kind() {
-                        if is_reserved_type_flag > 1 || (is_reserved_type_flag > 0 && Self::should_check(target_id.clone()) == false){
+                        if may_drop_flag > 1 || (may_drop_flag > 0 && Self::should_check(target_id.clone()) == false){
                             if tcx.is_mir_available(*target_id){
                                 if func_map.map.contains_key(&target_id.index.as_usize()){
                                     let assignments = func_map.map.get(&target_id.index.as_usize()).unwrap();
@@ -134,13 +138,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             }
                             else{
-                                if self.nodes[left_ssa].is_reserved_type(){
+                                if self.nodes[left_ssa].may_drop(){
                                     if self.corner_handle(left_ssa, &merge_vec, move_set, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
                                     for right_ssa in &merge_vec{
-                                        if self.nodes[*right_ssa].is_reserved_type() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
+                                        if self.nodes[*right_ssa].may_drop() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
                                             right_set.push(*right_ssa);
                                         }
                                     }

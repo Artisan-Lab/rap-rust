@@ -17,9 +17,9 @@ use rustc_middle::mir::Rvalue;
 use rustc_middle::ty;
 use rustc_span::Span;
 use super::{BugRecords, DROP, DROP_IN_PLACE};
-use super::bug::*;
 use super::node::Node;
 use super::node::ReturnResults;
+use super::types::*;
 
 #[derive(PartialEq,Debug,Clone)]
 pub enum AssignType {
@@ -119,9 +119,9 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let mut nodes = Vec::<Node>::new();
         let param_env = tcx.param_env(def_id);
         for (local, local_decl) in locals.iter_enumerated() {
-            let need_drop = local_decl.ty.needs_drop(tcx, param_env);
-            let is_reserved_type = type_filter(tcx, local_decl.ty);
-            let mut node = Node::new(local.as_usize(), local.as_usize(), need_drop, need_drop || !is_reserved_type);
+            let need_drop = local_decl.ty.needs_drop(tcx, param_env); // the type is drop
+            let may_drop = !is_not_drop(tcx, local_decl.ty);
+            let mut node = Node::new(local.as_usize(), local.as_usize(), need_drop, need_drop || may_drop);
             node.kind = kind(local_decl.ty);
             nodes.push(node);
         }
@@ -139,7 +139,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             
             // handle general statements
             for statement in &basicblocks[iter].statements{
-		/* Assign is a tuple defined as Assign(Box<(Place<'tcx>, Rvalue<'tcx>)>) */
+		        /* Assign is a tuple defined as Assign(Box<(Place<'tcx>, Rvalue<'tcx>)>) */
                 if let StatementKind::Assign(ref assign) = statement.kind {
                     let left_ssa = assign.0.local.as_usize(); // assign.0 is a Place
                     let left = assign.0.clone();
@@ -148,7 +148,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                    if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, AssignType::Copy, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -156,7 +156,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 },
                                 Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                    if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, AssignType::Move, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -182,7 +182,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                         Rvalue::Ref(_, _, ref p) | Rvalue::AddressOf(_, ref p) => {
                             let right_ssa = p.local.as_usize();
-                            if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                            if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                 let right = p.clone();
                                 let assign = Assignment::new(left, right, AssignType::Copy, statement.source_info.span.clone());
                                 current_node.assignments.push(assign);
@@ -213,7 +213,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) | Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                    if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, AssignType::Field, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -226,7 +226,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             match x {
                                 Operand::Copy(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                    if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, AssignType::Copy, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -234,7 +234,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 },
                                 Operand::Move(ref p) => {
                                     let right_ssa = p.local.as_usize();
-                                    if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                    if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                         let right = p.clone();
                                         let assign = Assignment::new(left, right, AssignType::Move, statement.source_info.span.clone());
                                         current_node.assignments.push(assign);
@@ -248,7 +248,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 match each_x {
                                     Operand::Copy(ref p) | Operand::Move(ref p) => {
                                         let right_ssa = p.local.as_usize();
-                                        if nodes[left_ssa].is_reserved_type() && nodes[right_ssa].is_reserved_type(){
+                                        if nodes[left_ssa].may_drop() && nodes[right_ssa].may_drop(){
                                             let right = p.clone();
                                             let assign = Assignment::new(left, right, AssignType::Copy, statement.source_info.span.clone());
                                             current_node.assignments.push(assign);

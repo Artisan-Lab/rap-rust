@@ -810,7 +810,8 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
 
     if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("UAF").is_some() {
         sess.time("safedrop_check", || {
-	    println!("Starting SafeDrop as a compiler pass...");
+	        println!("Starting SafeDrop as a compiler pass...");
+            /* Call safedrop_check() defined in compiler/rustc_mir_transform/src/lib.rs */
             tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
         });
     }

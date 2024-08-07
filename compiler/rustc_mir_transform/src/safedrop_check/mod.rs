@@ -7,11 +7,11 @@ use rustc_middle::mir::TerminatorKind;
 use rustc_data_structures::fx::FxHashSet;
 
 pub mod graph;
-pub mod node;
 pub mod bug_records;
 pub mod check_bugs;
 pub mod corner_handle;
 pub mod types;
+pub mod alias;
 pub mod log;
 pub mod utils;
 
@@ -21,11 +21,11 @@ extern crate log as extern_log;
 use extern_log::Log;
 
 pub use graph::*;
-pub use node::*;
 pub use bug_records::*;
 pub use check_bugs::*;
 pub use corner_handle::*;
 pub use types::*;
+pub use alias::*;
 pub use std::fmt;
 
 const DROP:usize = 1634;
@@ -46,18 +46,18 @@ impl<'tcx> SafeDropGraph<'tcx>{
             let mut l_node_ref = self.handle_projection(false, i.left.local.as_usize(), tcx, i.left.clone());
             let r_node_ref = self.handle_projection(true, i.right.local.as_usize(), tcx, i.right.clone());
             if i.atype == AssignType::Variant {
-                self.nodes[l_node_ref].alias[0] = r_node_ref;
+                self.vars[l_node_ref].alias[0] = r_node_ref;
                 continue;
             }
             self.uaf_check(r_node_ref, i.span, i.right.local.as_usize(), false);
-            self.fill_alive(l_node_ref, self.father_block[bb_index] as isize);
+            self.fill_alive(l_node_ref, self.scc_indices[bb_index] as isize);
             if i.atype == AssignType::Field {
-                l_node_ref = *self.nodes[l_node_ref].sons.get(&0).unwrap() + 2;
-                self.nodes[l_node_ref].alive = self.father_block[bb_index] as isize;
-                self.nodes[l_node_ref-1].alive = self.father_block[bb_index] as isize;
-                self.nodes[l_node_ref-2].alive = self.father_block[bb_index] as isize;
+                l_node_ref = *self.vars[l_node_ref].sons.get(&0).unwrap() + 2;
+                self.vars[l_node_ref].alive = self.scc_indices[bb_index] as isize;
+                self.vars[l_node_ref-1].alive = self.scc_indices[bb_index] as isize;
+                self.vars[l_node_ref-2].alive = self.scc_indices[bb_index] as isize;
             }
-            merge_alias(move_set, l_node_ref, r_node_ref, &mut self.nodes);
+            merge_alias(move_set, l_node_ref, r_node_ref, &mut self.vars);
         }        
     }
 
@@ -68,11 +68,11 @@ impl<'tcx> SafeDropGraph<'tcx>{
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
                 if let Operand::Constant(ref constant) = func {
                     let left_ssa = self.handle_projection(false, destination.local.as_usize(), tcx, destination.clone());
-                    self.nodes[left_ssa].alive = self.father_block[bb_index] as isize;
+                    self.vars[left_ssa].alive = self.scc_indices[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(left_ssa);
                     let mut may_drop_flag = 0;
-                    if self.nodes[left_ssa].may_drop() {
+                    if self.vars[left_ssa].may_drop {
                         may_drop_flag += 1;
                     }
                     for arg in args {
@@ -81,7 +81,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].may_drop() {
+                                if self.vars[right_ssa].may_drop {
                                     may_drop_flag += 1;
                                 }
                             },
@@ -89,7 +89,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 let right_ssa = self.handle_projection(true, p.local.as_usize(), tcx, p.clone());
                                 self.uaf_check(right_ssa, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(right_ssa);
-                                if self.nodes[right_ssa].may_drop() {
+                                if self.vars[right_ssa].may_drop {
                                     may_drop_flag += 1;
                                 }
                             },
@@ -107,7 +107,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable(){
                                             continue;
                                         }
-                                        merge(move_set, &mut self.nodes, assign, &merge_vec);
+                                        merge(move_set, &mut self.vars, assign, &merge_vec);
                                     }
                                     for dead in assignments.dead.iter(){
                                         let drop = merge_vec[*dead];
@@ -128,7 +128,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable(){
                                             continue;
                                         }
-                                        merge(move_set, &mut self.nodes, assign, &merge_vec);
+                                        merge(move_set, &mut self.vars, assign, &merge_vec);
                                     }
                                     for dead in return_results.dead.iter(){
                                         let drop = merge_vec[*dead];
@@ -138,18 +138,18 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             }
                             else{
-                                if self.nodes[left_ssa].may_drop(){
+                                if self.vars[left_ssa].may_drop{
                                     if self.corner_handle(left_ssa, &merge_vec, move_set, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
                                     for right_ssa in &merge_vec{
-                                        if self.nodes[*right_ssa].may_drop() && left_ssa != *right_ssa && self.nodes[left_ssa].is_ptr(){
+                                        if self.vars[*right_ssa].may_drop && left_ssa != *right_ssa && self.vars[left_ssa].is_ptr(){
                                             right_set.push(*right_ssa);
                                         }
                                     }
                                     if right_set.len() == 1{
-                                        merge_alias(move_set, left_ssa, right_set[0], &mut self.nodes);
+                                        merge_alias(move_set, left_ssa, right_set[0], &mut self.vars);
                                     }
                                 }
                             }
@@ -165,14 +165,14 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for drop in current_block.drops{
             match drop.kind{
                 TerminatorKind::Drop{ref place, target: _, unwind: _, replace: _} => {
-                    let life_begin = self.father_block[bb_index];
+                    let life_begin = self.scc_indices[bb_index];
                     let drop_local = self.handle_projection(false, place.local.as_usize(), tcx, place.clone());
                     let info = drop.source_info.clone();
                     self.dead_node(drop_local, life_begin, &info, false);
                 },
                 TerminatorKind::Call { func: _,  ref args, .. } => {
                     if args.len() > 0 {
-                        let life_begin = self.father_block[bb_index];
+                        let life_begin = self.scc_indices[bb_index];
                     	let place = match args[0] {
                         	Operand::Copy(place) => place,
                         	Operand::Move(place) => place,
@@ -194,13 +194,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
         if self.visit_times > VISIT_LIMIT {
             return;
         }
-        let current_block = self.blocks[self.father_block[bb_index]].clone();
+        let current_block = self.blocks[self.scc_indices[bb_index]].clone();
         let mut move_set = FxHashSet::default();
-        self.alias_check(self.father_block[bb_index], tcx, &mut move_set);
-        self.call_alias_check(self.father_block[bb_index], tcx, func_map, &mut move_set);
-        self.drop_check(self.father_block[bb_index], tcx);
-        if current_block.sub_blocks.len() > 0{
-            for i in current_block.sub_blocks.clone(){
+        self.alias_check(self.scc_indices[bb_index], tcx, &mut move_set);
+        self.call_alias_check(self.scc_indices[bb_index], tcx, func_map, &mut move_set);
+        self.drop_check(self.scc_indices[bb_index], tcx);
+        if current_block.scc_sub_blocks.len() > 0{
+            for i in current_block.scc_sub_blocks.clone(){
                 self.alias_check(i, tcx, &mut move_set);
                 self.call_alias_check(i, tcx,  func_map, &mut move_set);
                 self.drop_check(i, tcx);
@@ -214,7 +214,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 self.bug_check(&current_block);
             }
             // merge the result.
-            let results_nodes = self.nodes.clone();
+            let results_nodes = self.vars.clone();
             self.merge_results(results_nodes, current_block.is_cleanup);
         }
 
@@ -226,16 +226,16 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let mut discr_target = 0;
         let mut s_targets = None;
         //handle the SwitchInt statement.
-        if current_block.switch_stmts.is_empty() == false && current_block.sub_blocks.is_empty(){
+        if current_block.switch_stmts.is_empty() == false && current_block.scc_sub_blocks.is_empty(){
             if let TerminatorKind::SwitchInt { ref discr, ref targets } = current_block.switch_stmts[0].clone().kind{
                 if let Some(p) = discr.place() {
                     let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
-                    if let Some(const_bool) = self.constant_bool.get(&self.nodes[place].alias[0]) {
+                    if let Some(const_bool) = self.constant_bool.get(&self.vars[place].alias[0]) {
                         loop_flag = false;
                         ans_bool = *const_bool;
                     }
-                    if self.nodes[place].alias[0] != place{
-                        discr_target = self.nodes[place].alias[0];
+                    if self.vars[place].alias[0] != place{
+                        discr_target = self.vars[place].alias[0];
                         s_targets = Some(targets.clone());
                     }
                 } else {
@@ -301,20 +301,20 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             continue;
                         }
                         let next_index = iter.1.as_usize();
-                        let backup_nodes = self.nodes.clone();
+                        let backup_nodes = self.vars.clone();
                         let constant_record = self.constant_bool.clone();
                         self.constant_bool.insert(discr_target , iter.0 as usize);
                         self.safedrop_check(next_index, tcx, func_map);
-                        self.nodes = backup_nodes;
+                        self.vars = backup_nodes;
                         self.constant_bool = constant_record;
                     }
                     let all_targets = targets.all_targets();
                     let next_index = all_targets[all_targets.len()-1].as_usize();
-                    let backup_nodes = self.nodes.clone();
+                    let backup_nodes = self.vars.clone();
                     let constant_record = self.constant_bool.clone();
                     self.constant_bool.insert(discr_target , 99999 as usize);
                     self.safedrop_check(next_index, tcx, func_map);
-                    self.nodes = backup_nodes;
+                    self.vars = backup_nodes;
                     self.constant_bool = constant_record;
                 }
                 else{
@@ -323,10 +323,10 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             continue;
                         }
                         let next_index = i;
-                        let backup_nodes = self.nodes.clone();
+                        let backup_nodes = self.vars.clone();
                         let constant_record = self.constant_bool.clone();
                         self.safedrop_check(next_index, tcx, func_map);
-                        self.nodes = backup_nodes;
+                        self.vars = backup_nodes;
                         self.constant_bool = constant_record;
                     }
                 }

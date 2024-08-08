@@ -2,7 +2,9 @@ use rustc_span::Span;
 use rustc_span::symbol::Symbol;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use crate::{rap_warn};
-use super::{ReturnResults, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
+use super::{log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
+use super::alias::ReturnResults;
+
 use log::Log;
 
 //struct to cache the results for analyzed functions.

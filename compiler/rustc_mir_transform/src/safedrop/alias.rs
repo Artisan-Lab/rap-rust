@@ -1,8 +1,9 @@
-use rustc_data_structures::fx::{FxHashSet};
-use crate::{rap_error};
-use super::{Var, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
-
+use crate::rap_error;
+use rustc_data_structures::fx::FxHashSet;
+use super::graph::*;
+use super::log::*;
 use log::Log;
+
 #[derive(Debug,Clone)]
 pub struct ReturnAssign{
     pub left_index: usize,
@@ -84,11 +85,11 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, left_ssa: usize, right_ssa: 
 //inter-procedure instruction to merge alias.
 pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<Var>, assign: &ReturnAssign, arg_vec: &Vec<usize>) {
     if assign.left_index >= arg_vec.len() {
-        rap_error!("SafeDrop: Vector warning!");
+        rap_error!("Vector error!");
         return;
     }
     if assign.right_index >= arg_vec.len(){
-        rap_error!("SafeDrop: Vector warning!");
+        rap_error!("Vector error!");
         return;
     }
     let left_init = arg_vec[assign.left_index];

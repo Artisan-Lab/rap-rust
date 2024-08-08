@@ -16,8 +16,9 @@ use rustc_middle::mir::Operand;
 use rustc_middle::mir::Rvalue;
 use rustc_middle::ty;
 use rustc_span::Span;
-use super::{BugRecords, DROP, DROP_IN_PLACE};
-use super::alias::ReturnResults;
+use super::safedrop::*;
+use super::bug_records::*;
+use super::alias::*;
 use super::types::*;
 
 #[derive(PartialEq,Debug,Clone)]

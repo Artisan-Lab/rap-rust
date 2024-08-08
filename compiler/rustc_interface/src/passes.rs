@@ -809,10 +809,10 @@ fn analysis(tcx: TyCtxt<'_>, (): ()) -> Result<()> {
     sess.time("abi_testing", || abi_test::test_abi(tcx));
 
     if env::var_os("RUSTC_BOOTSTRAP").is_none() && env::var_os("UAF").is_some() {
-        sess.time("safedrop_check", || {
-	        println!("Starting SafeDrop as a compiler pass...");
-            /* Call safedrop_check() defined in compiler/rustc_mir_transform/src/lib.rs */
-            tcx.hir().par_body_owners(|def_id| tcx.ensure().safedrop_check(def_id));
+        sess.time("safedrop", || {
+	        println!("Starting safedrop as a compiler pass...");
+            /* Call safedrop_query() defined in compiler/rustc_mir_transform/src/lib.rs */
+            tcx.hir().par_body_owners(|def_id| tcx.ensure().query_safedrop(def_id));
         });
     }
 

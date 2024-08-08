@@ -108,7 +108,7 @@ pub use plumbing::{IntoQueryParam, TyCtxtAt, TyCtxtEnsure, TyCtxtEnsureWithValue
 // as they will raise an fatal error on query cycles instead.
 rustc_queries! {
 
-    query safedrop_check(_: DefId) -> () {
+    query query_safedrop(_: DefId) -> () {
         desc { "check safedrop bugs in rustc mir" }
     }
 

@@ -36,20 +36,16 @@ lazy_static! {
 #[derive(Debug, Copy, Clone, Hash)]
 pub enum RapLogLevel {
     Info,
-    Debug,
-    Trace,
-    Error,
     Warn,
+    Error,
 }
 
 pub fn record_msg(args: fmt::Arguments<'_>, level: RapLogLevel) -> Record<'_> {
     let meta = MetadataBuilder::new().target("RAP").level(
             match level {
                 RapLogLevel::Info => Level::Info,
-                RapLogLevel::Debug => Level::Debug,
-                RapLogLevel::Trace => Level::Trace,
-                RapLogLevel::Error => Level::Error,
                 RapLogLevel::Warn => Level::Warn,
+                RapLogLevel::Error => Level::Error,
             }
         ).build();
     let record = Record::builder().metadata(meta).args(args.clone()).build();

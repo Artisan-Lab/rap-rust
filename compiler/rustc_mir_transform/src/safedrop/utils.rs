@@ -2,11 +2,6 @@ use rustc_middle::ty::TyCtxt;
 use rustc_span::symbol::Symbol;
 use rustc_span::def_id::DefId;
 use rustc_span::{FileName, FileNameDisplayPreference};
-use rustc_middle::mir::LocalDecl;
-
-pub fn get_type_name<'tcx>(local_decl: &LocalDecl<'tcx>) -> String {
-    local_decl.ty.to_string()
-}
 
 pub fn get_fn_name(tcx: TyCtxt<'_>, def_id: DefId) -> Option<Symbol> {
     if def_id.is_local() {

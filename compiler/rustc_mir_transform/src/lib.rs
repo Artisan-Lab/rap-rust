@@ -116,9 +116,11 @@ use rustc_mir_dataflow::rustc_peek;
 use rustc_errors::{DiagnosticMessage, SubdiagnosticMessage};
 use rustc_fluent_macro::fluent_messages;
 
-pub mod safedrop_check;
-
-use safedrop_check::{SafeDropGraph, VISIT_LIMIT, FuncMap, log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
+pub mod safedrop;
+use safedrop::safedrop::*;
+use safedrop::graph::*;
+use safedrop::bug_records::*;
+use safedrop::log::*;
 use log::Log;
 
 fluent_messages! { "../messages.ftl" }
@@ -129,7 +131,7 @@ pub fn provide(providers: &mut Providers) {
     ffi_unwind_calls::provide(providers);
     shim::provide(providers);
     *providers = Providers {
-        safedrop_check,
+        query_safedrop,
         mir_keys,
         mir_const,
         mir_const_qualif,
@@ -148,7 +150,7 @@ pub fn provide(providers: &mut Providers) {
     };
 }
 
-fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
+fn query_safedrop<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
     /* filter const mir */
     if let Some(_other) = tcx.hir().body_const_context(def_id.expect_local()) {
         return;
@@ -158,11 +160,11 @@ fn safedrop_check<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> () {
         let mut func_map = FuncMap::new();
         let mut safedrop_graph = SafeDropGraph::new(&body, tcx, def_id);
         safedrop_graph.solve_scc();
-        safedrop_graph.safedrop_check(0, tcx, &mut func_map);
+        safedrop_graph.check(0, tcx, &mut func_map);
         if safedrop_graph.visit_times <= VISIT_LIMIT { 
 	         safedrop_graph.report_bugs(); 
 	    } else { 
-	        rap_error!("Over visited: {:?}", def_id); 
+	        rap_info!("Over visited: {:?}", def_id); 
 	    }
     }
 }

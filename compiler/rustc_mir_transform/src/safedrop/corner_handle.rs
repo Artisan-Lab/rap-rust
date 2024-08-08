@@ -1,7 +1,7 @@
-use crate::SafeDropGraph;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_span::def_id::DefId;
-use crate::safedrop_check::{CALL_MUT, NEXT};
+use super::safedrop::*;
+use super::graph::*;
 
 impl<'tcx> SafeDropGraph<'tcx> {
     //can also use the format to check.

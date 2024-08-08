@@ -6,32 +6,17 @@ use rustc_middle::mir::Operand;
 use rustc_middle::mir::TerminatorKind;
 use rustc_data_structures::fx::FxHashSet;
 
-pub mod graph;
-pub mod bug_records;
-pub mod check_bugs;
-pub mod corner_handle;
-pub mod types;
-pub mod alias;
-pub mod log;
-pub mod utils;
-
 use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
+use log::Log;
 
-extern crate log as extern_log;
-use extern_log::Log;
+use super::graph::*;
+use super::bug_records::*;
+use super::alias::*;
 
-pub use graph::*;
-pub use bug_records::*;
-pub use check_bugs::*;
-pub use corner_handle::*;
-pub use types::*;
-pub use alias::*;
-pub use std::fmt;
-
-const DROP:usize = 1634;
-const DROP_IN_PLACE:usize = 2160;
-const CALL_MUT:usize = 3022;
-const NEXT:usize = 7587;
+pub const DROP:usize = 1634;
+pub const DROP_IN_PLACE:usize = 2160;
+pub const CALL_MUT:usize = 3022;
+pub const NEXT:usize = 7587;
 
 pub const VISIT_LIMIT:usize = 10000;
 
@@ -122,7 +107,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                     let func_body = tcx.optimized_mir(*target_id);
                                     let mut safedrop_graph = SafeDropGraph::new(&func_body, tcx, *target_id);
                                     safedrop_graph.solve_scc();
-                                    safedrop_graph.safedrop_check(0, tcx, func_map);
+                                    safedrop_graph.check(0, tcx, func_map);
                                     let return_results = safedrop_graph.return_results.clone();
                                     for assign in return_results.assignments.iter(){
                                         if !assign.valuable(){
@@ -189,7 +174,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
 
     // the core function of the safedrop.
-    pub fn safedrop_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap){
+    pub fn check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap){
         self.visit_times += 1;
         if self.visit_times > VISIT_LIMIT {
             return;
@@ -285,13 +270,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
         // only one path
         if current_block.next.len() == 1{
             for next_index in current_block.next{
-                self.safedrop_check(next_index, tcx, func_map);
+                self.check(next_index, tcx, func_map);
             }
         }
         else{
             // fixed path since a constant switchInt value
             if loop_flag == false{
-                self.safedrop_check(s_target, tcx, func_map);
+                self.check(s_target, tcx, func_map);
             }
             else{
                 // Other cases in switchInt terminators
@@ -304,7 +289,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         let backup_nodes = self.vars.clone();
                         let constant_record = self.constant_bool.clone();
                         self.constant_bool.insert(discr_target , iter.0 as usize);
-                        self.safedrop_check(next_index, tcx, func_map);
+                        self.check(next_index, tcx, func_map);
                         self.vars = backup_nodes;
                         self.constant_bool = constant_record;
                     }
@@ -313,7 +298,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     let backup_nodes = self.vars.clone();
                     let constant_record = self.constant_bool.clone();
                     self.constant_bool.insert(discr_target , 99999 as usize);
-                    self.safedrop_check(next_index, tcx, func_map);
+                    self.check(next_index, tcx, func_map);
                     self.vars = backup_nodes;
                     self.constant_bool = constant_record;
                 }
@@ -325,7 +310,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         let next_index = i;
                         let backup_nodes = self.vars.clone();
                         let constant_record = self.constant_bool.clone();
-                        self.safedrop_check(next_index, tcx, func_map);
+                        self.check(next_index, tcx, func_map);
                         self.vars = backup_nodes;
                         self.constant_bool = constant_record;
                     }

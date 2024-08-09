@@ -140,7 +140,7 @@ pub struct SafeDropGraph<'tcx>{
     // we shrink a SCC into a node and use a scc node to represent the SCC.
     pub scc_indices: Vec<usize>,
     // record the constant value during safedrop checking.
-    pub constant_bool: FxHashMap<usize, usize>,
+    pub constant: FxHashMap<usize, usize>,
     // used for tarjan algorithmn.
     pub count: usize,
     // contains the return results for inter-procedure analysis.
@@ -396,7 +396,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             vars: vars,
             arg_size: arg_size,
             scc_indices: scc_indices,
-            constant_bool: FxHashMap::default(), 
+            constant: FxHashMap::default(), 
             count: 0,
             return_results: ReturnResults::new(arg_size),
             return_set: FxHashSet::default(),

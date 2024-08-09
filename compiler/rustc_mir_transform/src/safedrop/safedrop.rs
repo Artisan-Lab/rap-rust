@@ -25,7 +25,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
     // alias analysis for a single block
     pub fn alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, move_set: &mut FxHashSet<usize>){
         for stmt in self.blocks[bb_index].const_value.clone(){
-            self.constant_bool.insert(stmt.0, stmt.1);
+            self.constant.insert(stmt.0, stmt.1);
         }
         let cur_block = self.blocks[bb_index].clone();
         for i in cur_block.assignments{
@@ -196,107 +196,133 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
 
         /* Reach a leaf node, check bugs */
-        if cur_block.next.len() == 0 {
-            // check the bugs.
-            if Self::should_check(self.def_id){
-                self.bug_check(&cur_block);
-            }
-            // merge the result.
-            let results_nodes = self.vars.clone();
-            self.merge_results(results_nodes, cur_block.is_cleanup);
-            return;
-        }
-
-        
-        //search for the next block to visit.
-        let mut loop_flag = true;
-        let mut ans_bool = 0;
-        let mut s_target = 0;
-        let mut discr_target = 0;
-        let mut s_targets = None;
-        //handle the SwitchInt statement.
-        if cur_block.switch_stmts.is_empty() == false && cur_block.scc_sub_blocks.is_empty() {
-            if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
-                match discr {
-                    Copy(p) | Move(p) => {
-                        let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
-                        if let Some(const_bool) = self.constant_bool.get(&self.vars[place].alias[0]) {
-                            loop_flag = false;
-                            ans_bool = *const_bool;
-                        }
-                        if self.vars[place].alias[0] != place{
-                            discr_target = self.vars[place].alias[0];
-                            s_targets = Some(targets.clone());
-                        }
-                    } 
-                    Constant(c) => {
-                        loop_flag = false;
-                        let param_env = tcx.param_env(self.def_id);
-                        ans_bool = c.const_.eval_target_usize(tcx, param_env) as usize;
-                    }
+        match cur_block.next.len() {
+            0 => { // check the bugs.
+                if Self::should_check(self.def_id){
+                    self.bug_check(&cur_block);
                 }
-                if !loop_flag {
-                    for iter in targets.iter() {
-                        if iter.0 as usize == ans_bool as usize {
-                            s_target = iter.1.as_usize();
-                            break;
-                        }
-                    }
-                    if s_target == 0 {
-                        let all_target = targets.all_targets();
-                        if ans_bool as usize >= all_target.len(){
-                            s_target = all_target[all_target.len()-1].as_usize();
-                        } else {
-                            s_target = all_target[ans_bool as usize].as_usize();
-                        }
-                    }
+                // merge the result.
+                let results_nodes = self.vars.clone();
+                self.merge_results(results_nodes, cur_block.is_cleanup);
+                return;
+            }, 
+            1 => {
+                /* 
+                * Equivalent to self.check(cur_block.next[0]..); 
+                * We cannot use [0] for FxHashSet.
+                */
+                for next in cur_block.next {
+                    self.check(next, tcx, func_map);
                 }
-            }
-        }
-        // only one path
-        if cur_block.next.len() == 1 {
-            for next in cur_block.next { // looped only once; we cannot use [0] for FxHashSet.
-                self.check(next, tcx, func_map);
-            }
-        } else {
-            // fixed path since a constant switchInt value
-            if loop_flag == false {
-                self.check(s_target, tcx, func_map);
-            } else {
-                // Other cases in switchInt terminators
-                if let Some(targets) = s_targets {
-                    for iter in targets.iter(){
-                        if self.visit_times > VISIT_LIMIT {
-                            continue;
-                        }
-                        let next_index = iter.1.as_usize();
-                        let backup_nodes = self.vars.clone();
-                        let constant_record = self.constant_bool.clone();
-                        self.constant_bool.insert(discr_target , iter.0 as usize);
-                        self.check(next_index, tcx, func_map);
-                        self.vars = backup_nodes;
-                        self.constant_bool = constant_record;
-                    }
-                    let all_targets = targets.all_targets();
-                    let next_index = all_targets[all_targets.len()-1].as_usize();
-                    let backup_nodes = self.vars.clone();
-                    let constant_record = self.constant_bool.clone();
-                    self.constant_bool.insert(discr_target , 99999 as usize);
-                    self.check(next_index, tcx, func_map);
-                    self.vars = backup_nodes;
-                    self.constant_bool = constant_record;
-                } else {
+                return;
+            },
+            _ => { // multiple blocks
+                /*
+                if cur_block.switch_stmts.is_empty() ||  cur_block.scc_sub_blocks.is_empty() == false {
                     for i in cur_block.next {
                         if self.visit_times > VISIT_LIMIT {
                             continue;
                         }
                         let next_index = i;
                         let backup_nodes = self.vars.clone();
-                        let constant_record = self.constant_bool.clone();
+                        let constant_record = self.constant.clone();
                         self.check(next_index, tcx, func_map);
                         self.vars = backup_nodes;
-                        self.constant_bool = constant_record;
+                        self.constant = constant_record;
+                        return;
                     }
+                } 
+                */
+            },
+        }
+
+        //search for the next block to visit.
+        let mut single_target = false;
+        let mut sw_val = 0;
+        let mut sw_target = 0; // Single target
+        let mut sw_path_val = 0; // To avoid analyzing paths that cannot be reached with one enum type.
+        let mut sw_targets = None; // Multiple targets of SwitchInt
+        /* Begin: handle the SwitchInt statement. */
+        if cur_block.switch_stmts.is_empty() == false && cur_block.scc_sub_blocks.is_empty() {
+            if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
+                match discr {
+                    Copy(p) | Move(p) => {
+                        let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
+                        if let Some(constant) = self.constant.get(&self.vars[place].alias[0]) {
+                            single_target = true;
+                            sw_val = *constant;
+                        }
+                        if self.vars[place].alias[0] != place{
+                            sw_path_val = self.vars[place].alias[0];
+                            sw_targets = Some(targets.clone());
+                        }
+                    } 
+                    Constant(c) => {
+                        single_target = true;
+                        let param_env = tcx.param_env(self.def_id);
+                        sw_val = c.const_.eval_target_usize(tcx, param_env) as usize;
+                    }
+                }
+                if single_target {
+                    for iter in targets.iter() {
+                        /* 
+                         * filed 0 is the value; field 1 is the real target.
+                         * Since sw_val is a const, only one target is reachable.
+                         */
+                        if iter.0 as usize == sw_val as usize {
+                            sw_target = iter.1.as_usize();
+                            break;
+                        }
+                    }
+                    if sw_target == 0 {
+                        let all_target = targets.all_targets();
+                        if sw_val as usize >= all_target.len(){
+                            sw_target = all_target[all_target.len()-1].as_usize();
+                        } else {
+                            sw_target = all_target[sw_val as usize].as_usize();
+                        }
+                    }
+                }
+            }
+        }
+        /* End: finish handling SwitchInt */
+        // fixed path since a constant switchInt value
+        if single_target {
+            self.check(sw_target, tcx, func_map);
+        } else {
+            // Other cases in switchInt terminators
+            if let Some(targets) = sw_targets {
+                for iter in targets.iter(){
+                    if self.visit_times > VISIT_LIMIT {
+                        continue;
+                    }
+                    let next_index = iter.1.as_usize();
+                    let backup_nodes = self.vars.clone();
+                    let constant_record = self.constant.clone();
+                    self.constant.insert(sw_path_val , iter.0 as usize);
+                    self.check(next_index, tcx, func_map);
+                    self.vars = backup_nodes;
+                    self.constant = constant_record;
+                }
+                let all_targets = targets.all_targets();
+                let next_index = all_targets[all_targets.len()-1].as_usize();
+                let backup_nodes = self.vars.clone();
+                let constant_record = self.constant.clone();
+                self.constant.insert(sw_path_val, 99999 as usize);
+                self.check(next_index, tcx, func_map);
+                self.vars = backup_nodes;
+                self.constant = constant_record;
+            } else {
+                for i in cur_block.next {
+                    if self.visit_times > VISIT_LIMIT {
+                        continue;
+                    }
+                    let next_index = i;
+                    let backup_nodes = self.vars.clone();
+                    let constant_record = self.constant.clone();
+                    self.check(next_index, tcx, func_map);
+                    self.vars = backup_nodes;
+                    self.constant = constant_record;
                 }
             }
         }

@@ -2,8 +2,9 @@
 
 use rustc_middle::ty::TyCtxt;
 use rustc_middle::ty;
-use rustc_middle::mir::Operand;
 use rustc_middle::mir::TerminatorKind;
+use rustc_middle::mir::Operand;
+use rustc_middle::mir::Operand::{Copy, Move, Constant};
 use rustc_data_structures::fx::FxHashSet;
 
 use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
@@ -26,8 +27,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for stmt in self.blocks[bb_index].const_value.clone(){
             self.constant_bool.insert(stmt.0, stmt.1);
         }
-        let current_block = self.blocks[bb_index].clone();
-        for i in current_block.assignments{
+        let cur_block = self.blocks[bb_index].clone();
+        for i in cur_block.assignments{
             let mut l_node_ref = self.handle_projection(false, i.left.local.as_usize(), tcx, i.left.clone());
             let r_node_ref = self.handle_projection(true, i.right.local.as_usize(), tcx, i.right.clone());
             if i.atype == AssignType::Variant {
@@ -48,8 +49,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     // interprocedure alias analysis, mainly handle the function call statement
     pub fn call_alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, move_set: &mut FxHashSet<usize>){
-        let current_block = self.blocks[bb_index].clone();
-        for call in current_block.calls{
+        let cur_block = self.blocks[bb_index].clone();
+        for call in cur_block.calls{
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
                 if let Operand::Constant(ref constant) = func {
                     let left_ssa = self.handle_projection(false, destination.local.as_usize(), tcx, destination.clone());
@@ -146,8 +147,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
     // analyze the drop statement and update the alive state for nodes.
     pub fn drop_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>){
-        let current_block = self.blocks[bb_index].clone();
-        for drop in current_block.drops{
+        let cur_block = self.blocks[bb_index].clone();
+        for drop in cur_block.drops{
             match drop.kind{
                 TerminatorKind::Drop{ref place, target: _, unwind: _, replace: _} => {
                     let life_begin = self.scc_indices[bb_index];
@@ -174,33 +175,36 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
 
     // the core function of the safedrop.
-    pub fn check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap){
+    pub fn check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
         self.visit_times += 1;
         if self.visit_times > VISIT_LIMIT {
             return;
         }
-        let current_block = self.blocks[self.scc_indices[bb_index]].clone();
+        let cur_block = self.blocks[self.scc_indices[bb_index]].clone();
         let mut move_set = FxHashSet::default();
         self.alias_check(self.scc_indices[bb_index], tcx, &mut move_set);
         self.call_alias_check(self.scc_indices[bb_index], tcx, func_map, &mut move_set);
         self.drop_check(self.scc_indices[bb_index], tcx);
-        if current_block.scc_sub_blocks.len() > 0{
-            for i in current_block.scc_sub_blocks.clone(){
+
+        /* Handle cases if the current block is a merged scc block with sub block */
+        if cur_block.scc_sub_blocks.len() > 0{
+            for i in cur_block.scc_sub_blocks.clone(){
                 self.alias_check(i, tcx, &mut move_set);
                 self.call_alias_check(i, tcx,  func_map, &mut move_set);
                 self.drop_check(i, tcx);
             }
         }
 
-        //finish the analysis for a path
-        if current_block.next.len() == 0{
+        /* Reach a leaf node, check bugs */
+        if cur_block.next.len() == 0 {
             // check the bugs.
             if Self::should_check(self.def_id){
-                self.bug_check(&current_block);
+                self.bug_check(&cur_block);
             }
             // merge the result.
             let results_nodes = self.vars.clone();
-            self.merge_results(results_nodes, current_block.is_cleanup);
+            self.merge_results(results_nodes, cur_block.is_cleanup);
+            return;
         }
 
         
@@ -211,56 +215,38 @@ impl<'tcx> SafeDropGraph<'tcx>{
         let mut discr_target = 0;
         let mut s_targets = None;
         //handle the SwitchInt statement.
-        if current_block.switch_stmts.is_empty() == false && current_block.scc_sub_blocks.is_empty(){
-            if let TerminatorKind::SwitchInt { ref discr, ref targets } = current_block.switch_stmts[0].clone().kind{
-                if let Some(p) = discr.place() {
-                    let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
-                    if let Some(const_bool) = self.constant_bool.get(&self.vars[place].alias[0]) {
+        if cur_block.switch_stmts.is_empty() == false && cur_block.scc_sub_blocks.is_empty() {
+            if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
+                match discr {
+                    Copy(p) | Move(p) => {
+                        let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
+                        if let Some(const_bool) = self.constant_bool.get(&self.vars[place].alias[0]) {
+                            loop_flag = false;
+                            ans_bool = *const_bool;
+                        }
+                        if self.vars[place].alias[0] != place{
+                            discr_target = self.vars[place].alias[0];
+                            s_targets = Some(targets.clone());
+                        }
+                    } 
+                    Constant(c) => {
                         loop_flag = false;
-                        ans_bool = *const_bool;
-                    }
-                    if self.vars[place].alias[0] != place{
-                        discr_target = self.vars[place].alias[0];
-                        s_targets = Some(targets.clone());
-                    }
-                } else {
-                    loop{
-                        if let None = discr.constant(){
-                            break;
-                        } 
-                        let temp = discr.constant().unwrap().const_;
-                        if let None = temp.try_to_scalar(){
-                            break;
-                        }
-                        if let Err(_tmp) = temp.try_to_scalar().clone().unwrap().try_to_int(){
-                            break;
-                        }
                         let param_env = tcx.param_env(self.def_id);
-                        if let Some(const_bool) = temp.try_eval_target_usize(tcx, param_env){
-                            loop_flag = false;
-                            ans_bool = const_bool as usize;
-                            break;
-                        }
-                        if let Some(const_bool) = temp.try_to_bool() {
-                            loop_flag = false;
-                            ans_bool = const_bool as usize;
-                        }
-                        break;
+                        ans_bool = c.const_.eval_target_usize(tcx, param_env) as usize;
                     }
                 }
                 if !loop_flag {
-                    for iter in targets.iter(){
-                        if iter.0 as usize == ans_bool as usize{
+                    for iter in targets.iter() {
+                        if iter.0 as usize == ans_bool as usize {
                             s_target = iter.1.as_usize();
                             break;
                         }
                     }
-                    if s_target == 0{
+                    if s_target == 0 {
                         let all_target = targets.all_targets();
                         if ans_bool as usize >= all_target.len(){
                             s_target = all_target[all_target.len()-1].as_usize();
-                        }
-                        else{
+                        } else {
                             s_target = all_target[ans_bool as usize].as_usize();
                         }
                     }
@@ -268,17 +254,15 @@ impl<'tcx> SafeDropGraph<'tcx>{
             }
         }
         // only one path
-        if current_block.next.len() == 1{
-            for next_index in current_block.next{
-                self.check(next_index, tcx, func_map);
+        if cur_block.next.len() == 1 {
+            for next in cur_block.next { // looped only once; we cannot use [0] for FxHashSet.
+                self.check(next, tcx, func_map);
             }
-        }
-        else{
+        } else {
             // fixed path since a constant switchInt value
-            if loop_flag == false{
+            if loop_flag == false {
                 self.check(s_target, tcx, func_map);
-            }
-            else{
+            } else {
                 // Other cases in switchInt terminators
                 if let Some(targets) = s_targets {
                     for iter in targets.iter(){
@@ -301,9 +285,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.check(next_index, tcx, func_map);
                     self.vars = backup_nodes;
                     self.constant_bool = constant_record;
-                }
-                else{
-                    for i in current_block.next{
+                } else {
+                    for i in cur_block.next {
                         if self.visit_times > VISIT_LIMIT {
                             continue;
                         }

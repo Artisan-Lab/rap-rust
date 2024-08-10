@@ -174,6 +174,26 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
     }
 
+    pub fn split_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
+        /* duplicate the status before visiting a path; */
+        let backup_vars = self.vars.clone(); // duplicate the status when visiting different paths;
+        let backup_constant = self.constant.clone();
+        self.check(bb_index, tcx, func_map);
+        /* restore after visit */ 
+        self.vars = backup_vars;
+        self.constant = backup_constant;
+    }
+    pub fn split_check_with_cond(&mut self, bb_index: usize, path_discr_id: usize, path_discr_val:usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
+        /* duplicate the status before visiting a path; */
+        let backup_vars = self.vars.clone(); // duplicate the status when visiting different paths;
+        let backup_constant = self.constant.clone();
+        /* add control-sensitive indicator to the path status */ 
+        self.constant.insert(path_discr_id, path_discr_val);
+        self.check(bb_index, tcx, func_map);
+        /* restore after visit */ 
+        self.vars = backup_vars;
+        self.constant = backup_constant;
+    }
     // the core function of the safedrop.
     pub fn check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
         self.visit_times += 1;
@@ -216,34 +236,17 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 }
                 return;
             },
-            _ => { // multiple blocks
-                /*
-                if cur_block.switch_stmts.is_empty() ||  cur_block.scc_sub_blocks.is_empty() == false {
-                    for i in cur_block.next {
-                        if self.visit_times > VISIT_LIMIT {
-                            continue;
-                        }
-                        let next_index = i;
-                        let backup_nodes = self.vars.clone();
-                        let constant_record = self.constant.clone();
-                        self.check(next_index, tcx, func_map);
-                        self.vars = backup_nodes;
-                        self.constant = constant_record;
-                        return;
-                    }
-                } 
-                */
+            _ => { // multiple blocks  
             },
         }
 
-        //search for the next block to visit.
+        /* Begin: handle the SwitchInt statement. */
         let mut single_target = false;
         let mut sw_val = 0;
         let mut sw_target = 0; // Single target
-        let mut sw_path_val = 0; // To avoid analyzing paths that cannot be reached with one enum type.
+        let mut path_discr_id = 0; // To avoid analyzing paths that cannot be reached with one enum type.
         let mut sw_targets = None; // Multiple targets of SwitchInt
-        /* Begin: handle the SwitchInt statement. */
-        if cur_block.switch_stmts.is_empty() == false && cur_block.scc_sub_blocks.is_empty() {
+        if !cur_block.switch_stmts.is_empty() && cur_block.scc_sub_blocks.is_empty() {
             if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
                 match discr {
                     Copy(p) | Move(p) => {
@@ -253,7 +256,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             sw_val = *constant;
                         }
                         if self.vars[place].alias[0] != place{
-                            sw_path_val = self.vars[place].alias[0];
+                            path_discr_id = self.vars[place].alias[0];
                             sw_targets = Some(targets.clone());
                         }
                     } 
@@ -264,23 +267,23 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     }
                 }
                 if single_target {
+                    /* Find the target based on the value; 
+                     * Since sw_val is a const, only one target is reachable.
+                     * Filed 0 is the value; field 1 is the real target.
+                     */
                     for iter in targets.iter() {
-                        /* 
-                         * filed 0 is the value; field 1 is the real target.
-                         * Since sw_val is a const, only one target is reachable.
-                         */
                         if iter.0 as usize == sw_val as usize {
                             sw_target = iter.1.as_usize();
                             break;
                         }
                     }
+                    /* No target found, choose the default target.
+                     * The default targets is not included within the iterator.
+                     * We can only obtain the default target based on the last item of all_targets().
+                     */
                     if sw_target == 0 {
                         let all_target = targets.all_targets();
-                        if sw_val as usize >= all_target.len(){
-                            sw_target = all_target[all_target.len()-1].as_usize();
-                        } else {
-                            sw_target = all_target[sw_val as usize].as_usize();
-                        }
+                        sw_target = all_target[all_target.len()-1].as_usize();
                     }
                 }
             }
@@ -297,32 +300,20 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         continue;
                     }
                     let next_index = iter.1.as_usize();
-                    let backup_nodes = self.vars.clone();
-                    let constant_record = self.constant.clone();
-                    self.constant.insert(sw_path_val , iter.0 as usize);
-                    self.check(next_index, tcx, func_map);
-                    self.vars = backup_nodes;
-                    self.constant = constant_record;
+                    let path_discr_val = iter.0 as usize;
+                    self.split_check_with_cond(next_index, path_discr_id, path_discr_val, tcx, func_map);
                 }
                 let all_targets = targets.all_targets();
                 let next_index = all_targets[all_targets.len()-1].as_usize();
-                let backup_nodes = self.vars.clone();
-                let constant_record = self.constant.clone();
-                self.constant.insert(sw_path_val, 99999 as usize);
-                self.check(next_index, tcx, func_map);
-                self.vars = backup_nodes;
-                self.constant = constant_record;
+                let path_discr_val = 99999; // to indicate the default path;
+                self.split_check_with_cond(next_index, path_discr_id, path_discr_val, tcx, func_map);
             } else {
                 for i in cur_block.next {
                     if self.visit_times > VISIT_LIMIT {
                         continue;
                     }
                     let next_index = i;
-                    let backup_nodes = self.vars.clone();
-                    let constant_record = self.constant.clone();
-                    self.check(next_index, tcx, func_map);
-                    self.vars = backup_nodes;
-                    self.constant = constant_record;
+                    self.split_check(next_index, tcx, func_map);
                 }
             }
         }

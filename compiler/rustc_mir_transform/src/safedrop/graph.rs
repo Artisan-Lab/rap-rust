@@ -427,33 +427,34 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         // generate SCC
         if dfn[index] == low[index] {
-            loop{
-                let top = stack.pop().unwrap();
-                self.scc_indices[top] = index;
-                instack.remove(&top);
-                if index == top{
+            loop {
+                let node = stack.pop().unwrap();
+                self.scc_indices[node] = index;
+                instack.remove(&node);
+                if index == node { // we have found all nodes of the current scc.
                     break;
                 }
-                let top_node = self.blocks[top].next.clone();
-                for i in top_node{
+                self.blocks[index].scc_sub_blocks.push(node);
+                let nexts = self.blocks[node].next.clone();
+                for i in nexts {
                     self.blocks[index].next.insert(i);
                 }
-                self.blocks[index].scc_sub_blocks.push(top);
-                for i in self.blocks[top].scc_sub_blocks.clone() {
-                    self.blocks[index].scc_sub_blocks.push(i);
-                }
             } 
-            self.blocks[index].scc_sub_blocks.reverse();
-            //remove the out vars which is in the current SCC
-            let mut remove_list = Vec::new();
-            for i in self.blocks[index].next.iter(){
-                if self.scc_indices[*i] == index{
-                    remove_list.push(*i);
+            /* remove next nodes which are already in the current SCC */
+            let mut to_remove = Vec::new();
+            for i in self.blocks[index].next.iter() {
+                if self.scc_indices[*i] == index {
+                    to_remove.push(*i);
                 }
             }
-            for i in remove_list{
+            for i in to_remove {
                 self.blocks[index].next.remove(&i);
             }
+            /* To ensure a resonable order of blocks within one SCC, 
+             * so that the scc can be directly used for followup analysis without referencing the
+             * original graph.
+             * */
+            self.blocks[index].scc_sub_blocks.reverse();
         }
     }
 

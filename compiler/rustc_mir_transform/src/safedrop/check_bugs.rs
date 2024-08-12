@@ -80,30 +80,31 @@ impl<'tcx> SafeDropGraph<'tcx> {
         }
     }
 
-    pub fn dp_check(&self, local: usize) -> bool {
+    pub fn is_dangling(&self, local: usize) -> bool {
         let mut record = FxHashSet::default();
         return self.exist_dead(local, &mut record, local != 0);
     }
 
-    pub fn bug_check(&mut self, current_block: &BlockNode<'tcx>) {
-        if current_block.is_cleanup == false {
-            if self.vars[0].may_drop && self.dp_check(0){
-                self.bug_records.dp_bugs.insert(self.span);
-            }
-            else{
-                for i in 0..self.arg_size {
-                    if self.vars[i+1].is_ptr() && self.dp_check(i+1) {
-                        self.bug_records.dp_bugs.insert(self.span);
-                     }
+    pub fn dp_check(&mut self, current_block: &BlockNode<'tcx>) {
+        match current_block.is_cleanup {
+            true => {
+                for i in 0..self.arg_size{
+                    if self.vars[i+1].is_ptr() && self.is_dangling(i+1) {
+                        self.bug_records.dp_bugs_unwind.insert(self.span);
+                    }
                 }
-            }
-        }
-        else{
-            for i in 0..self.arg_size{
-                if self.vars[i+1].is_ptr() && self.dp_check(i+1) {
-                    self.bug_records.dp_bugs_unwind.insert(self.span);
+            },
+            false => { 
+                if self.vars[0].may_drop && self.is_dangling(0){
+                    self.bug_records.dp_bugs.insert(self.span);
+                } else{
+                    for i in 0..self.arg_size {
+                        if self.vars[i+1].is_ptr() && self.is_dangling(i+1) {
+                            self.bug_records.dp_bugs.insert(self.span);
+                        }
+                    }
                 }
-            }
+            },
         }
     }
 

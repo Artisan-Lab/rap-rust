@@ -48,22 +48,22 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     pub fn split_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
         /* duplicate the status before visiting a path; */
-        let backup_vars = self.vars.clone(); // duplicate the status when visiting different paths;
+        let backup_values = self.values.clone(); // duplicate the status when visiting different paths;
         let backup_constant = self.constant.clone();
         self.check(bb_index, tcx, func_map);
         /* restore after visit */ 
-        self.vars = backup_vars;
+        self.values = backup_values;
         self.constant = backup_constant;
     }
     pub fn split_check_with_cond(&mut self, bb_index: usize, path_discr_id: usize, path_discr_val:usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
         /* duplicate the status before visiting a path; */
-        let backup_vars = self.vars.clone(); // duplicate the status when visiting different paths;
+        let backup_values = self.values.clone(); // duplicate the status when visiting different paths;
         let backup_constant = self.constant.clone();
         /* add control-sensitive indicator to the path status */ 
         self.constant.insert(path_discr_id, path_discr_val);
         self.check(bb_index, tcx, func_map);
         /* restore after visit */ 
-        self.vars = backup_vars;
+        self.values = backup_values;
         self.constant = backup_constant;
     }
     // the core function of the safedrop.
@@ -94,7 +94,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     self.dp_check(&cur_block);
                 }
                 // merge the result.
-                let results_nodes = self.vars.clone();
+                let results_nodes = self.values.clone();
                 self.merge_results(results_nodes, cur_block.is_cleanup);
                 return;
             }, 
@@ -123,19 +123,22 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 match discr {
                     Copy(p) | Move(p) => {
                         let place = self.handle_projection(false, p.local.as_usize(), tcx, p.clone());
-                        if let Some(constant) = self.constant.get(&self.vars[place].alias[0]) {
+                        if let Some(constant) = self.constant.get(&self.values[place].alias[0]) {
                             single_target = true;
                             sw_val = *constant;
                         }
-                        if self.vars[place].alias[0] != place{
-                            path_discr_id = self.vars[place].alias[0];
+                        if self.values[place].alias[0] != place{
+                            path_discr_id = self.values[place].alias[0];
                             sw_targets = Some(targets.clone());
                         }
                     } 
                     Constant(c) => {
                         single_target = true;
                         let param_env = tcx.param_env(self.def_id);
-                        sw_val = c.const_.eval_target_usize(tcx, param_env) as usize;
+                        if let Some(val) = c.const_.try_eval_target_usize(tcx, param_env) {
+                            sw_val = val as usize;
+                        }
+
                     }
                 }
                 if single_target {

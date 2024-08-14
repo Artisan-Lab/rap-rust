@@ -63,7 +63,7 @@ pub struct BlockNode<'tcx>{
     pub drops: Vec<Terminator<'tcx>>,
     //store the index of the basic blocks as a SCC node. 
     pub scc_sub_blocks: Vec<usize>,
-    //store the const value defined in this block;
+    //store const values defined in this block, i.e., which id has what value;
     pub const_value: Vec::<(usize, usize)>,
     //store switch stmts in current block for the path filtering in path-sensitive analysis.
     pub switch_stmts: Vec::<Terminator<'tcx>>,
@@ -138,12 +138,12 @@ pub struct SafeDropGraph<'tcx>{
     pub arg_size: usize, 
     // we shrink a SCC into a node and use a scc node to represent the SCC.
     pub scc_indices: Vec<usize>,
-    // record the constant value during safedrop checking.
+    // record the constant value during safedrop checking, i.e., which id has what value.
     pub constant: FxHashMap<usize, usize>,
     // used for tarjan algorithmn.
     pub count: usize,
     // contains the return results for inter-procedure analysis.
-    pub return_results: ReturnResults,
+    pub ret_results: RetResults,
     // used for filtering duplicate alias assignments in return results.
     pub return_set: FxHashSet<(usize, usize)>,
     // record the information of bugs for the function.
@@ -390,7 +390,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             scc_indices: scc_indices,
             constant: FxHashMap::default(), 
             count: 0,
-            return_results: ReturnResults::new(arg_size),
+            ret_results: RetResults::new(arg_size),
             return_set: FxHashSet::default(),
             bug_records: BugRecords::new(),
             visit_times: 0,

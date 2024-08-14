@@ -1,11 +1,9 @@
-use rustc_middle::mir::{SourceInfo, Place, ProjectionElem};
-use rustc_middle::ty::{TyCtxt};
+use rustc_middle::mir::SourceInfo;
 use rustc_span::Span;
 use rustc_span::symbol::Symbol;
 use rustc_data_structures::fx::FxHashSet;
 use super::graph::*;
 use super::utils::*;
-use super::types::*;
 use super::alias::*;
 
 impl<'tcx> SafeDropGraph<'tcx> {
@@ -27,49 +25,6 @@ impl<'tcx> SafeDropGraph<'tcx> {
         self.bug_records.dp_bug_output(fn_name);
     }
 
-    // assign to the variable _x, we will set the alive of _x and its child nodes a new alive.
-    pub fn fill_alive(&mut self, node: usize, alive: isize) {
-        self.values[node].alive = alive;
-        //TODO: check the correctness.
-        for i in self.values[node].alias.clone() {
-            if self.values[i].alive == -1{
-                self.values[i].alive = alive;
-            }
-        }
-        for i in self.values[node].fields.clone().into_iter() {
-            self.fill_alive(i.1, alive);
-        }
-    }
-
-    pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool {
-        //if is a dangling pointer check, only check the pointer type varible.
-        if self.values[node].is_alive() == false && (dangling && self.values[node].is_ptr() || !dangling) {
-            return true; 
-        }
-        record.insert(node);
-        if self.values[node].alias[0] != node{
-            for i in self.values[node].alias.clone().into_iter(){
-                if i != node && record.contains(&i) == false && self.exist_dead(i, record, dangling) {
-                    return true;
-                }
-            }
-        }
-        for i in self.values[node].fields.clone().into_iter() {
-            if record.contains(&i.1) == false && self.exist_dead(i.1, record, dangling) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
-        let root = self.values[drop].index;
-        if self.values[drop].is_alive() == false 
-        && self.bug_records.df_bugs.contains_key(&root) == false {
-            self.bug_records.df_bugs.insert(root, span.clone());
-        }
-        return self.values[drop].is_alive() == false;
-    }
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool) {
         let mut record = FxHashSet::default();
@@ -141,53 +96,6 @@ impl<'tcx> SafeDropGraph<'tcx> {
             self.values[drop].dead();   
         }
     }
-
-    // field-sensitive fetch instruction for a variable.
-    // is_right: 2 = 1.0; 0 = 2.0; => 0 = 1.0.0;   
-    pub fn handle_projection(&mut self, is_right: bool, local: usize, tcx: TyCtxt<'tcx>, place: Place<'tcx>) -> usize {
-        let mut init_local = local;
-        let mut current_local = local;
-        for projection in place.projection{
-            match projection{
-                ProjectionElem::Deref => {
-                    if current_local == self.values[current_local].alias[0] && self.values[current_local].is_ref() == false{
-                        let need_drop = true;
-                        let may_drop = true;
-                        let mut node = ValueNode::new(self.values.len(), self.values.len(), need_drop, may_drop);
-                        node.kind = 1; //TODO
-                        node.alive = self.values[current_local].alive;
-                        self.values[current_local].alias[0] = self.values.len();
-                        self.values.push(node);
-                    }
-                    current_local = self.values[current_local].alias[0];
-                    init_local = self.values[current_local].index;
-                }
-                ProjectionElem::Field(field, ty) => {
-                    let index = field.as_usize();
-                    if is_right && self.values[current_local].alias[0] != current_local {
-                        current_local = self.values[current_local].alias[0];
-                        init_local = self.values[current_local].index;
-                    }
-                    if self.values[current_local].fields.contains_key(&index) == false {
-                        let param_env = tcx.param_env(self.def_id);
-                        let need_drop = ty.needs_drop(tcx, param_env);
-                        let may_drop = !is_not_drop(tcx, ty);
-                        let mut node = ValueNode::new(init_local, self.values.len(), need_drop, need_drop || may_drop);
-                        node.kind = kind(ty);
-                        node.alive = self.values[current_local].alive;
-                        node.field_info = self.values[current_local].field_info.clone();
-                        node.field_info.push(index);
-                        self.values[current_local].fields.insert(index, node.local);
-                        self.values.push(node);
-                    }
-                    current_local = *self.values[current_local].fields.get(&index).unwrap();
-                }
-                _ => {}
-            }
-        }
-        return current_local;
-    }
-
     //merge the result of current path to the final result.
     pub fn merge_results(&mut self, results_nodes: Vec<ValueNode>, is_cleanup: bool) {
         for node in results_nodes.iter(){
@@ -201,21 +109,22 @@ impl<'tcx> SafeDropGraph<'tcx> {
                             self.return_set.insert((node.local, alias));
                             let left_node = node;
                             let right_node = &results_nodes[alias];
-                            let mut new_assign = ReturnAssign::new(0, 
+                            let mut new_assign = RetAssign::new(0, 
                                 left_node.index, left_node.may_drop, left_node.need_drop,
                                 right_node.index, right_node.may_drop, right_node.need_drop
 			    );
                             new_assign.left = left_node.field_info.clone();
                             new_assign.right = right_node.field_info.clone();
-                            self.return_results.assignments.push(new_assign);
+                            self.ret_results.assignments.push(new_assign);
                         }
                     }
                 }
                 if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
-                    self.return_results.dead.insert(node.local);
+                    self.ret_results.dead.insert(node.local);
                 }
             }
         }
     }
 }
+
 

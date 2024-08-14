@@ -3,14 +3,14 @@ use rustc_span::symbol::Symbol;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use crate::{rap_warn};
 use super::{log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
-use super::alias::ReturnResults;
+use super::alias::RetResults;
 
 use log::Log;
 
 //struct to cache the results for analyzed functions.
 #[derive(Clone)]
 pub struct FuncMap {
-    pub map: FxHashMap<usize, ReturnResults>,
+    pub map: FxHashMap<usize, RetResults>,
     pub set: FxHashSet<usize>,
 }
 

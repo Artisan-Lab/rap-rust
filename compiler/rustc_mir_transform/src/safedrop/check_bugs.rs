@@ -10,7 +10,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
     pub fn report_bugs(&self) {
 	    let filename = get_filename(self.tcx, self.def_id);
         match filename {
-	        Some(filename) => {if filename.contains(".cargo") { return; }},
+	        Some(filename) => { if filename.contains(".cargo") { return; } },
             None => {},
         }
         if self.bug_records.is_bug_free(){
@@ -50,7 +50,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 }
             },
             false => { 
-                if self.values[0].may_drop && self.is_dangling(0){
+                if self.values[0].may_drop && self.is_dangling(0) {
                     self.bug_records.dp_bugs.insert(self.span);
                 } else{
                     for i in 0..self.arg_size {
@@ -96,6 +96,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             self.values[drop].dead();   
         }
     }
+
     //merge the result of current path to the final result.
     pub fn merge_results(&mut self, results_nodes: Vec<ValueNode>, is_cleanup: bool) {
         for node in results_nodes.iter(){
@@ -109,18 +110,18 @@ impl<'tcx> SafeDropGraph<'tcx> {
                             self.return_set.insert((node.local, alias));
                             let left_node = node;
                             let right_node = &results_nodes[alias];
-                            let mut new_assign = RetAssign::new(0, 
+                            let mut new_alias = RetAlias::new(0, 
                                 left_node.index, left_node.may_drop, left_node.need_drop,
                                 right_node.index, right_node.may_drop, right_node.need_drop
-			    );
-                            new_assign.left = left_node.field_info.clone();
-                            new_assign.right = right_node.field_info.clone();
-                            self.ret_results.assignments.push(new_assign);
+			                );
+                            new_alias.left = left_node.field_info.clone();
+                            new_alias.right = right_node.field_info.clone();
+                            self.ret_alias.alias_vec.push(new_alias);
                         }
                     }
                 }
                 if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
-                    self.ret_results.dead.insert(node.local);
+                    self.ret_alias.dead.insert(node.local);
                 }
             }
         }

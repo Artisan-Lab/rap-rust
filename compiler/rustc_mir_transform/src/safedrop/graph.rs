@@ -143,7 +143,7 @@ pub struct SafeDropGraph<'tcx>{
     // used for tarjan algorithmn.
     pub count: usize,
     // contains the return results for inter-procedure analysis.
-    pub ret_results: RetResults,
+    pub ret_alias: FnRetAlias,
     // used for filtering duplicate alias assignments in return results.
     pub return_set: FxHashSet<(usize, usize)>,
     // record the information of bugs for the function.
@@ -390,7 +390,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             scc_indices: scc_indices,
             constant: FxHashMap::default(), 
             count: 0,
-            ret_results: RetResults::new(arg_size),
+            ret_alias: FnRetAlias::new(arg_size),
             return_set: FxHashSet::default(),
             bug_records: BugRecords::new(),
             visit_times: 0,

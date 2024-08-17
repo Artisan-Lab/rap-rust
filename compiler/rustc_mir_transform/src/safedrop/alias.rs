@@ -28,15 +28,14 @@ impl<'tcx> SafeDropGraph<'tcx>{
             self.uaf_check(rv_aliaset_idx, assign.span, assign.rv.local.as_usize(), false);
             self.fill_alive(lv_aliaset_idx, self.scc_indices[bb_index] as isize);
             
-            if assign.atype == AssignType::Field {
-                lv_aliaset_idx = *self.values[lv_aliaset_idx].fields.get(&0).unwrap() + 2;
+            if assign.atype == AssignType::InitBox {
+                lv_aliaset_idx = *self.values[lv_aliaset_idx].fields.get(&0).unwrap();
                 self.values[lv_aliaset_idx].alive = self.scc_indices[bb_index] as isize;
-                self.values[lv_aliaset_idx-1].alive = self.scc_indices[bb_index] as isize;
-                self.values[lv_aliaset_idx-2].alive = self.scc_indices[bb_index] as isize;
             }
             merge_alias(move_set, lv_aliaset_idx, rv_aliaset_idx, &mut self.values);
         }        
     }
+
     // interprocedure alias analysis, mainly handle the function call statement
     pub fn call_alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, move_set: &mut FxHashSet<usize>){
         let cur_block = self.blocks[bb_index].clone();
@@ -135,6 +134,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             }
         }
     }
+
     // assign to the variable _x, we will set the alive of _x and its child nodes a new alive.
     pub fn fill_alive(&mut self, node: usize, alive: isize) {
         self.values[node].alive = alive;
@@ -180,7 +180,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
     /*
      * This is the function for field sensitivity
-     * If the projection is a deref, we directly return the its head alias or alias[0].
+     * If the projection is a deref, we directly return its head alias or alias[0].
      * If the id is not a ref, we further make the id and its first element an alias, i.e., level-insensitive
      *
      */
@@ -289,15 +289,14 @@ impl FnRetAlias {
 }
 
 //instruction to assign alias for a variable.
-pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes: &mut Vec<ValueNode>){
-    if nodes[lv].index == nodes[rv].index{
+pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes: &mut Vec<ValueNode>) {
+    if nodes[lv].index == nodes[rv].index {
         return;
     }
-    if move_set.contains(&lv){
+    if move_set.contains(&lv) {
         let mut alias_clone = nodes[rv].alias.clone();
         nodes[lv].alias.append(&mut alias_clone);
-    }
-    else{
+    } else {
         move_set.insert(lv);
         nodes[lv].alias = nodes[rv].alias.clone();
     }
@@ -317,23 +316,19 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes:
 }
 
 //inter-procedure instruction to merge alias.
-pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, assign: &RetAlias, arg_vec: &Vec<usize>) {
-    if assign.left_index >= arg_vec.len() {
+pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
+    if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
         rap_error!("Vector error!");
         return;
     }
-    if assign.right_index >= arg_vec.len() {
-        rap_error!("Vector error!");
-        return;
-    }
-    let left_init = arg_vec[assign.left_index];
-    let mut right_init = arg_vec[assign.right_index];
+    let left_init = arg_vec[ret_alias.left_index];
+    let mut right_init = arg_vec[ret_alias.right_index];
     let mut lv = left_init;
     let mut rv = right_init;
-    for index in assign.left.iter() {
+    for index in ret_alias.left.iter() {
         if nodes[lv].fields.contains_key(&index) == false {
-            let need_drop = assign.left_need_drop;
-            let may_drop = assign.left_may_drop;
+            let need_drop = ret_alias.left_need_drop;
+            let may_drop = ret_alias.left_may_drop;
             let mut node = ValueNode::new(left_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
             node.alive = nodes[lv].alive;
@@ -344,14 +339,14 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, assign
         }
         lv = *nodes[lv].fields.get(&index).unwrap();
     }
-    for index in assign.right.iter() {
+    for index in ret_alias.right.iter() {
         if nodes[rv].alias[0] != rv {
             rv = nodes[rv].alias[0];
             right_init = nodes[rv].index;
         }
         if nodes[rv].fields.contains_key(&index) == false {
-            let need_drop = assign.right_need_drop;
-            let may_drop = assign.right_may_drop;
+            let need_drop = ret_alias.right_need_drop;
+            let may_drop = ret_alias.right_may_drop;
             let mut node = ValueNode::new(right_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
             node.alive = nodes[rv].alive;

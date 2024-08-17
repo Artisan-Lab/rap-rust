@@ -24,7 +24,7 @@ use super::types::*;
 pub enum AssignType {
     Copy,
     Move,
-    Field,
+    InitBox,
     Variant,
 }
 
@@ -222,34 +222,24 @@ impl<'tcx> SafeDropGraph<'tcx> {
                             }
                         },
                         Rvalue::ShallowInitBox(ref x, _) => {
+                            /* 
+                             * Original ShllowInitBox is a two-level pointer: lvl0 -> lvl1 -> lvl2 
+                             * Since our alias analysis does not consider multi-level pointer,
+                             * We simplify it as: lvl0
+                             */
                             if values[lv_local].fields.contains_key(&0) == false {
-                                /* lvl0 -> lvl1 -> lvl2 */
                                 let mut lvl0 = ValueNode::new(lv_local, values.len(), false, true);
-                                let mut lvl1 = ValueNode::new(lv_local, values.len() + 1, false, true);
-                                let mut lvl2 = ValueNode::new(lv_local, values.len() + 2, false, true);
                                 lvl0.alive = values[lv_local].alive;
-                                lvl1.alive = lvl0.alive;
-                                lvl2.alive = lvl0.alive;
-                                lvl0.fields.insert(0, lvl1.local);
                                 lvl0.field_info.push(0);
-                                lvl1.fields.insert(0, lvl2.local);
-                                lvl1.field_info.push(0);
-                                //node1.field_info.push(0);
-                                lvl2.field_info.push(0);
-                                //node2.field_info.push(0);
-                                //node2.field_info.push(0);
-                                lvl2.kind = 1;
                                 values[lv_local].fields.insert(0, lvl0.local);
                                 values.push(lvl0);
-                                values.push(lvl1);
-                                values.push(lvl2);
                             }
                             match x {
                                 Operand::Copy(ref p) | Operand::Move(ref p) => {
                                     let rv_local = p.local.as_usize();
                                     if values[lv_local].may_drop && values[rv_local].may_drop{
                                         let rv = p.clone();
-                                        let assign = Assignment::new(lv, rv, AssignType::Field, span);
+                                        let assign = Assignment::new(lv, rv, AssignType::InitBox, span);
                                         cur_bb.assignments.push(assign);
                                     }
                                 },

@@ -35,9 +35,39 @@ impl<'tcx> SafeDropGraph<'tcx> {
         }
     }
 
+    pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool {
+        //if is a dangling pointer check, only check the pointer type varible.
+        if self.values[node].is_born() == false && (dangling && self.values[node].is_ptr() || !dangling) {
+            return true; 
+        }
+        record.insert(node);
+        if self.values[node].alias[0] != node {
+            for i in self.values[node].alias.clone().into_iter() {
+                if i != node && record.contains(&i) == false && self.exist_dead(i, record, dangling) {
+                    return true;
+                }
+            }
+        }
+        for i in self.values[node].fields.clone().into_iter() {
+            if record.contains(&i.1) == false && self.exist_dead(i.1, record, dangling) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     pub fn is_dangling(&self, local: usize) -> bool {
         let mut record = FxHashSet::default();
         return self.exist_dead(local, &mut record, local != 0);
+    }
+
+    pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
+        let root = self.values[drop].index;
+        if self.values[drop].is_born() == false 
+        && self.bug_records.df_bugs.contains_key(&root) == false {
+            self.bug_records.df_bugs.insert(root, span.clone());
+        }
+        return self.values[drop].is_born() == false;
     }
 
     pub fn dp_check(&mut self, current_block: &BlockNode<'tcx>) {
@@ -63,7 +93,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
         }
     }
 
-    pub fn dead_node(&mut self, drop: usize, life_begin: usize, info: &SourceInfo, alias: bool) {
+    pub fn dead_node(&mut self, drop: usize, birth: usize, info: &SourceInfo, alias: bool) {
         //Rc drop
         if self.values[drop].is_corner_case() {
             return;
@@ -78,7 +108,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 if self.values[i].is_ref(){
                     continue;
                 }
-                self.dead_node(i, life_begin, info, true);
+                self.dead_node(i, birth, info, true);
             }
         }
         //drop the fields of the root node.
@@ -88,11 +118,11 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 if self.values[drop].is_tuple() == true && self.values[i.1].need_drop == false {
                     continue;
                 } 
-                self.dead_node( i.1, life_begin, info, false);
+                self.dead_node( i.1, birth, info, false);
             }
         }
         //SCC.
-        if self.values[drop].alive < life_begin as isize && self.values[drop].may_drop {
+        if self.values[drop].birth < birth as isize && self.values[drop].may_drop {
             self.values[drop].dead();   
         }
     }
@@ -120,7 +150,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                         }
                     }
                 }
-                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
+                if node.is_ptr() && is_cleanup == false && node.is_born() == false && node.local <= self.arg_size {
                     self.ret_alias.dead.insert(node.local);
                 }
             }

@@ -16,29 +16,29 @@ pub const NEXT:usize = 7587;
 
 pub const VISIT_LIMIT:usize = 10000;
 
-impl<'tcx> SafeDropGraph<'tcx>{
-    // analyze the drop statement and update the alive state for nodes.
-    pub fn drop_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>){
+impl<'tcx> SafeDropGraph<'tcx> {
+    // analyze the drop statement and update the liveness for nodes.
+    pub fn drop_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>) {
         let cur_block = self.blocks[bb_index].clone();
         for drop in cur_block.drops{
             match drop.kind{
                 TerminatorKind::Drop{ref place, target: _, unwind: _, replace: _} => {
-                    let life_begin = self.scc_indices[bb_index];
-                    let drop_local = self.handle_projection(tcx, false, place.local.as_usize(), place.clone());
+                    let birth = self.scc_indices[bb_index];
+                    let drop_local = self.handle_projection(tcx, false, place.clone());
                     let info = drop.source_info.clone();
-                    self.dead_node(drop_local, life_begin, &info, false);
+                    self.dead_node(drop_local, birth, &info, false);
                 },
                 TerminatorKind::Call { func: _,  ref args, .. } => {
                     if args.len() > 0 {
-                        let life_begin = self.scc_indices[bb_index];
+                        let birth = self.scc_indices[bb_index];
                     	let place = match args[0] {
                         	Operand::Copy(place) => place,
                         	Operand::Move(place) => place,
                         	_ => { rap_error!("Constant operand exists: {:?}", args[0]); return; }
                     	};
-                    	let drop_local = self.handle_projection(tcx, false, place.local.as_usize(), place.clone());
+                    	let drop_local = self.handle_projection(tcx, false, place.clone());
                     	let info = drop.source_info.clone();
-                    	self.dead_node(drop_local, life_begin, &info, false);
+                    	self.dead_node(drop_local, birth, &info, false);
 		    }
                 },
                 _ => {}
@@ -74,15 +74,15 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         let cur_block = self.blocks[self.scc_indices[bb_index]].clone();
         let mut move_set = FxHashSet::default();
-        self.alias_check(self.scc_indices[bb_index], tcx, &mut move_set);
-        self.call_alias_check(self.scc_indices[bb_index], tcx, func_map, &mut move_set);
+        self.alias_bb(self.scc_indices[bb_index], tcx, &mut move_set);
+        self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map, &mut move_set);
         self.drop_check(self.scc_indices[bb_index], tcx);
 
         /* Handle cases if the current block is a merged scc block with sub block */
         if cur_block.scc_sub_blocks.len() > 0{
             for i in cur_block.scc_sub_blocks.clone(){
-                self.alias_check(i, tcx, &mut move_set);
-                self.call_alias_check(i, tcx,  func_map, &mut move_set);
+                self.alias_bb(i, tcx, &mut move_set);
+                self.alias_bbcall(i, tcx,  func_map, &mut move_set);
                 self.drop_check(i, tcx);
             }
         }
@@ -122,7 +122,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
             if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
                 match discr {
                     Copy(p) | Move(p) => {
-                        let place = self.handle_projection(tcx, false, p.local.as_usize(), p.clone());
+                        let place = self.handle_projection(tcx, false, p.clone());
                         if let Some(constant) = self.constant.get(&self.values[place].alias[0]) {
                             single_target = true;
                             sw_val = *constant;

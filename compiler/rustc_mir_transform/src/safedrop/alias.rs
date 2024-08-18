@@ -1,7 +1,6 @@
 use rustc_middle::ty;
 use rustc_middle::ty::TyCtxt;
 use rustc_middle::mir::{TerminatorKind, Operand, Place, ProjectionElem};
-use rustc_span::Span;
 use rustc_data_structures::fx::FxHashSet;
 
 use crate::rap_error;
@@ -12,38 +11,38 @@ use super::bug_records::*;
 use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
-    // alias analysis for a single block
-    pub fn alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, move_set: &mut FxHashSet<usize>) {
+    /* alias analysis for a single block */
+    pub fn alias_bb(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, move_set: &mut FxHashSet<usize>) {
         for stmt in self.blocks[bb_index].const_value.clone() {
             self.constant.insert(stmt.0, stmt.1);
         }
         let cur_block = self.blocks[bb_index].clone();
         for assign in cur_block.assignments {
-            let mut lv_aliaset_idx = self.handle_projection(tcx, false, assign.lv.local.as_usize(), assign.lv.clone());
-            let rv_aliaset_idx = self.handle_projection(tcx, true, assign.rv.local.as_usize(), assign.rv.clone());
+            let mut lv_aliaset_idx = self.handle_projection(tcx, false, assign.lv.clone());
+            let rv_aliaset_idx = self.handle_projection(tcx, true, assign.rv.clone());
             if assign.atype == AssignType::Variant {
                 self.values[lv_aliaset_idx].alias[0] = rv_aliaset_idx;
                 continue;
             }
             self.uaf_check(rv_aliaset_idx, assign.span, assign.rv.local.as_usize(), false);
-            self.fill_alive(lv_aliaset_idx, self.scc_indices[bb_index] as isize);
+            self.fill_birth(lv_aliaset_idx, self.scc_indices[bb_index] as isize);
             
             if assign.atype == AssignType::InitBox {
                 lv_aliaset_idx = *self.values[lv_aliaset_idx].fields.get(&0).unwrap();
-                self.values[lv_aliaset_idx].alive = self.scc_indices[bb_index] as isize;
+                self.values[lv_aliaset_idx].birth = self.scc_indices[bb_index] as isize;
             }
             merge_alias(move_set, lv_aliaset_idx, rv_aliaset_idx, &mut self.values);
         }        
     }
 
-    // interprocedure alias analysis, mainly handle the function call statement
-    pub fn call_alias_check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, move_set: &mut FxHashSet<usize>){
+    /* Check the aliases introduced by the terminators (function call) of a scc block */
+    pub fn alias_bbcall(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, move_set: &mut FxHashSet<usize>){
         let cur_block = self.blocks[bb_index].clone();
         for call in cur_block.calls {
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
                 if let Operand::Constant(ref constant) = func {
-                    let lv = self.handle_projection(tcx, false, destination.local.as_usize(), destination.clone());
-                    self.values[lv].alive = self.scc_indices[bb_index] as isize;
+                    let lv = self.handle_projection(tcx, false, destination.clone());
+                    self.values[lv].birth = self.scc_indices[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(lv);
                     let mut may_drop_flag = 0;
@@ -53,7 +52,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     for arg in args {
                         match arg {
                             Operand::Copy(ref p) => {
-                                let rv = self.handle_projection(tcx, true, p.local.as_usize(), p.clone());
+                                let rv = self.handle_projection(tcx, true, p.clone());
                                 self.uaf_check(rv, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(rv);
                                 if self.values[rv].may_drop {
@@ -61,7 +60,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             },
                             Operand::Move(ref p) => {
-                                let rv = self.handle_projection(tcx, true, p.local.as_usize(), p.clone());
+                                let rv = self.handle_projection(tcx, true, p.clone());
                                 self.uaf_check(rv, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(rv);
                                 if self.values[rv].may_drop {
@@ -74,23 +73,23 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         }
                     }
                     if let ty::FnDef(ref target_id, _) = constant.const_.ty().kind() {
-                        if may_drop_flag > 1 || (may_drop_flag > 0 && Self::should_check(target_id.clone()) == false){
-                            if tcx.is_mir_available(*target_id){
-                                if func_map.map.contains_key(&target_id.index.as_usize()){
+                        if may_drop_flag > 1 || (may_drop_flag > 0 && Self::should_check(target_id.clone()) == false) {
+                            if tcx.is_mir_available(*target_id) {
+                                if func_map.map.contains_key(&target_id.index.as_usize()) {
                                     let assignments = func_map.map.get(&target_id.index.as_usize()).unwrap();
-                                    for assign in assignments.alias_vec.iter(){
-                                        if !assign.valuable(){
+                                    for assign in assignments.alias_vec.iter() {
+                                        if !assign.valuable() {
                                             continue;
                                         }
                                         merge(move_set, &mut self.values, assign, &merge_vec);
                                     }
-                                    for dead in assignments.dead.iter(){
+                                    for dead in assignments.dead.iter() {
                                         let drop = merge_vec[*dead];
                                         self.dead_node(drop, 99999, &call.source_info, false);
                                     }
                                 }
                                 else{
-                                    if func_map.set.contains(&target_id.index.as_usize()){
+                                    if func_map.set.contains(&target_id.index.as_usize()) {
                                         continue;
                                     }
                                     func_map.set.insert(target_id.index.as_usize());
@@ -99,21 +98,21 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                     safedrop_graph.solve_scc();
                                     safedrop_graph.check(0, tcx, func_map);
                                     let ret_alias = safedrop_graph.ret_alias.clone();
-                                    for assign in ret_alias.alias_vec.iter(){
+                                    for assign in ret_alias.alias_vec.iter() {
                                         if !assign.valuable(){
                                             continue;
                                         }
                                         merge(move_set, &mut self.values, assign, &merge_vec);
                                     }
-                                    for dead in ret_alias.dead.iter(){
+                                    for dead in ret_alias.dead.iter() {
                                         let drop = merge_vec[*dead];
                                         self.dead_node(drop, 99999, &call.source_info, false);
                                     }
                                     func_map.map.insert(target_id.index.as_usize(), ret_alias);
                                 }
                             }
-                            else{
-                                if self.values[lv].may_drop{
+                            else {
+                                if self.values[lv].may_drop {
                                     if self.corner_handle(lv, &merge_vec, move_set, *target_id){
                                         continue;
                                     }
@@ -135,58 +134,29 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
     }
 
-    // assign to the variable _x, we will set the alive of _x and its child nodes a new alive.
-    pub fn fill_alive(&mut self, node: usize, alive: isize) {
-        self.values[node].alive = alive;
+    // assign to the variable _x, we will set the birth of _x and its child nodes a new birth.
+    pub fn fill_birth(&mut self, node: usize, birth: isize) {
+        self.values[node].birth = birth;
         //TODO: check the correctness.
         for i in self.values[node].alias.clone() {
-            if self.values[i].alive == -1{
-                self.values[i].alive = alive;
+            if self.values[i].birth == -1 {
+                self.values[i].birth = birth;
             }
         }
         for i in self.values[node].fields.clone().into_iter() {
-            self.fill_alive(i.1, alive);
+            self.fill_birth(i.1, birth); //i.1 corresponds to the local field.
         }
     }
 
-    pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool {
-        //if is a dangling pointer check, only check the pointer type varible.
-        if self.values[node].is_alive() == false && (dangling && self.values[node].is_ptr() || !dangling) {
-            return true; 
-        }
-        record.insert(node);
-        if self.values[node].alias[0] != node {
-            for i in self.values[node].alias.clone().into_iter() {
-                if i != node && record.contains(&i) == false && self.exist_dead(i, record, dangling) {
-                    return true;
-                }
-            }
-        }
-        for i in self.values[node].fields.clone().into_iter() {
-            if record.contains(&i.1) == false && self.exist_dead(i.1, record, dangling) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
-        let root = self.values[drop].index;
-        if self.values[drop].is_alive() == false 
-        && self.bug_records.df_bugs.contains_key(&root) == false {
-            self.bug_records.df_bugs.insert(root, span.clone());
-        }
-        return self.values[drop].is_alive() == false;
-    }
     /*
      * This is the function for field sensitivity
      * If the projection is a deref, we directly return its head alias or alias[0].
      * If the id is not a ref, we further make the id and its first element an alias, i.e., level-insensitive
      *
      */
-    pub fn handle_projection(&mut self, tcx: TyCtxt<'tcx>, is_right: bool, local: usize, place: Place<'tcx>) -> usize {
-        let mut index = local;
-        let mut cur_local = local;
+    pub fn handle_projection(&mut self, tcx: TyCtxt<'tcx>, is_right: bool, place: Place<'tcx>) -> usize {
+        let mut index = place.local.as_usize();
+        let mut cur_local = index;
         for proj in place.projection {
             let new_id = self.values.len();
             match proj {
@@ -196,7 +166,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     } else if self.values[cur_local].is_ref() == false {
                         let mut node = ValueNode::new(new_id, new_id, true, true);
                         node.kind = 1;
-                        node.alive = self.values[cur_local].alive;
+                        node.birth = self.values[cur_local].birth;
                         self.values[cur_local].alias[0] = new_id;
                         self.values.push(node);
                     }
@@ -216,7 +186,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         let may_drop = !is_not_drop(tcx, ty);
                         let mut node = ValueNode::new(index, new_id, need_drop, need_drop || may_drop);
                         node.kind = kind(ty);
-                        node.alive = self.values[cur_local].alive;
+                        node.birth = self.values[cur_local].birth;
                         node.field_info = self.values[cur_local].field_info.clone();
                         node.field_info.push(field_idx);
                         self.values[cur_local].fields.insert(field_idx, node.local);
@@ -304,7 +274,7 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes:
         if nodes[lv].fields.contains_key(&son.0) == false {
             let mut node = ValueNode::new(nodes[lv].index, nodes.len(), nodes[son.1].need_drop, nodes[son.1].may_drop);
             node.kind = nodes[son.1].kind;
-            node.alive = nodes[lv].alive;
+            node.birth = nodes[lv].birth;
             node.field_info = nodes[lv].field_info.clone();
             node.field_info.push(son.0);
             nodes[lv].fields.insert(son.0, node.local);
@@ -331,7 +301,7 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
             let may_drop = ret_alias.left_may_drop;
             let mut node = ValueNode::new(left_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
-            node.alive = nodes[lv].alive;
+            node.birth = nodes[lv].birth;
             node.field_info = nodes[lv].field_info.clone();
             node.field_info.push(*index);
             nodes[lv].fields.insert(*index, node.local);
@@ -349,7 +319,7 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
             let may_drop = ret_alias.right_may_drop;
             let mut node = ValueNode::new(right_init, nodes.len(), need_drop, may_drop);
             node.kind = 1;
-            node.alive = nodes[rv].alive;
+            node.birth = nodes[rv].birth;
             node.field_info = nodes[rv].field_info.clone();
             node.field_info.push(*index);
             nodes[rv].fields.insert(*index, node.local);

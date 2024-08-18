@@ -98,7 +98,7 @@ pub struct ValueNode {
     pub kind: usize,
     pub father: usize,
     pub alias: Vec<usize>,
-    pub alive: isize,
+    pub birth: isize,
     pub fields: FxHashMap<usize, usize>,
     pub field_info: Vec<usize>, // ?
 }
@@ -108,13 +108,13 @@ impl ValueNode {
         let mut eq = Vec::new();
         eq.push(local);
         ValueNode { index: index, local: local, need_drop: need_drop, 
-              father: local, alias: eq, alive: 0, may_drop: may_drop, 
+              father: local, alias: eq, birth: 0, may_drop: may_drop, 
               kind: 0, fields: FxHashMap::default(), field_info: Vec::<usize>::new() }
     }
 
-    pub fn dead(&mut self) { self.alive = -1; }
+    pub fn dead(&mut self) { self.birth = -1; }
 
-    pub fn is_alive(&self) -> bool { self.alive > -1 }
+    pub fn is_born(&self) -> bool { self.birth > -1 }
 
     pub fn is_tuple(&self)-> bool { self.kind == 2 }
 
@@ -229,7 +229,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                              */
                             if values[lv_local].fields.contains_key(&0) == false {
                                 let mut lvl0 = ValueNode::new(lv_local, values.len(), false, true);
-                                lvl0.alive = values[lv_local].alive;
+                                lvl0.birth = values[lv_local].birth;
                                 lvl0.field_info.push(0);
                                 values[lv_local].fields.insert(0, lvl0.local);
                                 values.push(lvl0);

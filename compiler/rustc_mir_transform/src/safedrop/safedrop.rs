@@ -24,7 +24,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             match drop.kind{
                 TerminatorKind::Drop{ref place, target: _, unwind: _, replace: _} => {
                     let birth = self.scc_indices[bb_index];
-                    let drop_local = self.handle_projection(tcx, false, place.clone());
+                    let drop_local = self.projection(tcx, false, place.clone());
                     let info = drop.source_info.clone();
                     self.dead_node(drop_local, birth, &info, false);
                 },
@@ -36,7 +36,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                         	Operand::Move(place) => place,
                         	_ => { rap_error!("Constant operand exists: {:?}", args[0]); return; }
                     	};
-                    	let drop_local = self.handle_projection(tcx, false, place.clone());
+                    	let drop_local = self.projection(tcx, false, place.clone());
                     	let info = drop.source_info.clone();
                     	self.dead_node(drop_local, birth, &info, false);
 		    }
@@ -122,7 +122,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             if let TerminatorKind::SwitchInt { ref discr, ref targets } = cur_block.switch_stmts[0].clone().kind {
                 match discr {
                     Copy(p) | Move(p) => {
-                        let place = self.handle_projection(tcx, false, p.clone());
+                        let place = self.projection(tcx, false, p.clone());
                         if let Some(constant) = self.constant.get(&self.values[place].alias[0]) {
                             single_target = true;
                             sw_val = *constant;

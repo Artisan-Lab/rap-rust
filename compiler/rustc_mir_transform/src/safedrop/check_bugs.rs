@@ -37,7 +37,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
 
     pub fn exist_dead(&self, node: usize, record: &mut FxHashSet<usize>, dangling: bool) -> bool {
         //if is a dangling pointer check, only check the pointer type varible.
-        if self.values[node].is_born() == false && (dangling && self.values[node].is_ptr() || !dangling) {
+        if self.values[node].is_alive() == false && (dangling && self.values[node].is_ptr() || !dangling) {
             return true; 
         }
         record.insert(node);
@@ -63,17 +63,17 @@ impl<'tcx> SafeDropGraph<'tcx> {
 
     pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
         let root = self.values[drop].index;
-        if self.values[drop].is_born() == false 
+        if self.values[drop].is_alive() == false 
         && self.bug_records.df_bugs.contains_key(&root) == false {
             self.bug_records.df_bugs.insert(root, span.clone());
         }
-        return self.values[drop].is_born() == false;
+        return self.values[drop].is_alive() == false;
     }
 
     pub fn dp_check(&mut self, current_block: &BlockNode<'tcx>) {
         match current_block.is_cleanup {
             true => {
-                for i in 0..self.arg_size{
+                for i in 0..self.arg_size {
                     if self.values[i+1].is_ptr() && self.is_dangling(i+1) {
                         self.bug_records.dp_bugs_unwind.insert(self.span);
                     }
@@ -150,7 +150,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                         }
                     }
                 }
-                if node.is_ptr() && is_cleanup == false && node.is_born() == false && node.local <= self.arg_size {
+                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
                     self.ret_alias.dead.insert(node.local);
                 }
             }

@@ -18,8 +18,8 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         let cur_block = self.blocks[bb_index].clone();
         for assign in cur_block.assignments {
-            let mut lv_aliaset_idx = self.handle_projection(tcx, false, assign.lv.clone());
-            let rv_aliaset_idx = self.handle_projection(tcx, true, assign.rv.clone());
+            let mut lv_aliaset_idx = self.projection(tcx, false, assign.lv.clone());
+            let rv_aliaset_idx = self.projection(tcx, true, assign.rv.clone());
             if assign.atype == AssignType::Variant {
                 self.values[lv_aliaset_idx].alias[0] = rv_aliaset_idx;
                 continue;
@@ -41,7 +41,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for call in cur_block.calls {
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
                 if let Operand::Constant(ref constant) = func {
-                    let lv = self.handle_projection(tcx, false, destination.clone());
+                    let lv = self.projection(tcx, false, destination.clone());
                     self.values[lv].birth = self.scc_indices[bb_index] as isize;
                     let mut merge_vec = Vec::new();
                     merge_vec.push(lv);
@@ -52,7 +52,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                     for arg in args {
                         match arg {
                             Operand::Copy(ref p) => {
-                                let rv = self.handle_projection(tcx, true, p.clone());
+                                let rv = self.projection(tcx, true, p.clone());
                                 self.uaf_check(rv, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(rv);
                                 if self.values[rv].may_drop {
@@ -60,7 +60,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                 }
                             },
                             Operand::Move(ref p) => {
-                                let rv = self.handle_projection(tcx, true, p.clone());
+                                let rv = self.projection(tcx, true, p.clone());
                                 self.uaf_check(rv, call.source_info.span, p.local.as_usize(), true);
                                 merge_vec.push(rv);
                                 if self.values[rv].may_drop {
@@ -154,50 +154,42 @@ impl<'tcx> SafeDropGraph<'tcx>{
      * If the id is not a ref, we further make the id and its first element an alias, i.e., level-insensitive
      *
      */
-    pub fn handle_projection(&mut self, tcx: TyCtxt<'tcx>, is_right: bool, place: Place<'tcx>) -> usize {
-        let mut index = place.local.as_usize();
-        let mut cur_local = index;
+    pub fn projection(&mut self, tcx: TyCtxt<'tcx>, is_right: bool, place: Place<'tcx>) -> usize {
+        let mut local = place.local.as_usize();
+        let mut proj_id = local;
         for proj in place.projection {
             let new_id = self.values.len();
             match proj {
                 ProjectionElem::Deref => {
-                    if cur_local != self.values[cur_local].alias[0] {
-                        cur_local = self.values[cur_local].alias[0];
-                    } else if self.values[cur_local].is_ref() == false {
-                        let mut node = ValueNode::new(new_id, new_id, true, true);
-                        node.kind = 1;
-                        node.birth = self.values[cur_local].birth;
-                        self.values[cur_local].alias[0] = new_id;
-                        self.values.push(node);
-                    }
+                    proj_id = self.values[proj_id].alias[0];
                 }
                 /*
-                 * 2 = 1.0; 0 = 2.0; => 0 = 1.0.0
+                 * Objective: 2 = 1.0; 0 = 2.0; => 0 = 1.0.0
                  */
                 ProjectionElem::Field(field, ty) => {
-                    if is_right && self.values[cur_local].alias[0] != cur_local {
-                        cur_local = self.values[cur_local].alias[0];
-                        index = self.values[cur_local].index;
+                    if is_right && self.values[proj_id].alias[0] != proj_id {
+                        proj_id = self.values[proj_id].alias[0];
+                        local = self.values[proj_id].index;
                     }
                     let field_idx = field.as_usize();
-                    if self.values[cur_local].fields.contains_key(&field_idx) == false {
+                    if !self.values[proj_id].fields.contains_key(&field_idx) {
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
                         let may_drop = !is_not_drop(tcx, ty);
-                        let mut node = ValueNode::new(index, new_id, need_drop, need_drop || may_drop);
+                        let mut node = ValueNode::new(local, new_id, need_drop, need_drop || may_drop);
                         node.kind = kind(ty);
-                        node.birth = self.values[cur_local].birth;
-                        node.field_info = self.values[cur_local].field_info.clone();
+                        node.birth = self.values[proj_id].birth;
+                        node.field_info = self.values[proj_id].field_info.clone();
                         node.field_info.push(field_idx);
-                        self.values[cur_local].fields.insert(field_idx, node.local);
+                        self.values[proj_id].fields.insert(field_idx, node.local);
                         self.values.push(node);
                     }
-                    cur_local = *self.values[cur_local].fields.get(&field_idx).unwrap();
+                    proj_id = *self.values[proj_id].fields.get(&field_idx).unwrap();
                 }
                 _ => {}
             }
         }
-        return cur_local;
+        return proj_id;
     }
 }
 /*
@@ -300,7 +292,7 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
             let need_drop = ret_alias.left_need_drop;
             let may_drop = ret_alias.left_may_drop;
             let mut node = ValueNode::new(left_init, nodes.len(), need_drop, may_drop);
-            node.kind = 1;
+            node.kind = TyKind::RawPtr;
             node.birth = nodes[lv].birth;
             node.field_info = nodes[lv].field_info.clone();
             node.field_info.push(*index);
@@ -318,7 +310,7 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
             let need_drop = ret_alias.right_need_drop;
             let may_drop = ret_alias.right_may_drop;
             let mut node = ValueNode::new(right_init, nodes.len(), need_drop, may_drop);
-            node.kind = 1;
+            node.kind = TyKind::RawPtr;
             node.birth = nodes[rv].birth;
             node.field_info = nodes[rv].field_info.clone();
             node.field_info.push(*index);

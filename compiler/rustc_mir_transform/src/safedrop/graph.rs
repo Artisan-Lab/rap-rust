@@ -20,7 +20,7 @@ use super::bug_records::*;
 use super::alias::*;
 use super::types::*;
 
-#[derive(PartialEq,Debug,Clone)]
+#[derive(PartialEq,Debug,Copy,Clone)]
 pub enum AssignType {
     Copy,
     Move,
@@ -91,40 +91,59 @@ impl<'tcx> BlockNode<'tcx>{
 
 #[derive(Debug,Clone)]
 pub struct ValueNode {
-    pub index: usize,
-    pub local: usize,
+    pub local: usize, // location?
+    pub index: usize, // node index
     pub need_drop: bool,
     pub may_drop: bool,
-    pub kind: usize,
+    pub kind: TyKind,
     pub father: usize,
     pub alias: Vec<usize>,
     pub birth: isize,
     pub fields: FxHashMap<usize, usize>,
-    pub field_info: Vec<usize>, // ?
+    pub field_info: Vec<usize>, // the index of field in each level, e.g., 1.2.3?
 }
 
 impl ValueNode {
     pub fn new(index: usize, local: usize, need_drop: bool, may_drop: bool) -> Self {
         let mut eq = Vec::new();
         eq.push(local);
-        ValueNode { index: index, local: local, need_drop: need_drop, 
-              father: local, alias: eq, birth: 0, may_drop: may_drop, 
-              kind: 0, fields: FxHashMap::default(), field_info: Vec::<usize>::new() }
+        ValueNode { 
+            index: index, 
+            local: local, 
+            need_drop: need_drop, 
+            father: local, 
+            alias: eq, 
+            birth: 0, 
+            may_drop: may_drop, 
+            kind: TyKind::Adt, 
+            fields: FxHashMap::default(), 
+            field_info: Vec::<usize>::new() 
+        }
     }
 
-    pub fn dead(&mut self) { self.birth = -1; }
+    pub fn dead(&mut self) { 
+        self.birth = -1; 
+    }
 
-    pub fn is_born(&self) -> bool { self.birth > -1 }
+    pub fn is_alive(&self) -> bool { 
+        self.birth > -1 
+    }
 
-    pub fn is_tuple(&self)-> bool { self.kind == 2 }
+    pub fn is_tuple(&self)-> bool { 
+        self.kind == TyKind::Tuple 
+    }
 
     pub fn is_ptr(&self)-> bool {
-        return self.kind == 1 || self.kind == 4;
+        return self.kind == TyKind::RawPtr || self.kind == TyKind::Ref;
     }
 
-    pub fn is_ref(&self)-> bool { self.kind == 4 }
+    pub fn is_ref(&self)-> bool { 
+        self.kind == TyKind::Ref 
+    }
 
-    pub fn is_corner_case(&self)-> bool { self.kind == 3 }
+    pub fn is_corner_case(&self)-> bool { 
+        self.kind == TyKind::CornerCase 
+    }
 }
 
 pub struct SafeDropGraph<'tcx>{
@@ -190,7 +209,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                             match x {
                                 Operand::Copy(ref p) => {
                                     let rv_local = p.local.as_usize();
-                                    if values[lv_local].may_drop && values[rv_local].may_drop{
+                                    if values[lv_local].may_drop && values[rv_local].may_drop {
                                         let rv = p.clone();
                                         let assign = Assignment::new(lv, rv, AssignType::Copy, span);
                                         cur_bb.assignments.push(assign);
@@ -227,7 +246,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                              * Since our alias analysis does not consider multi-level pointer,
                              * We simplify it as: lvl0
                              */
-                            if values[lv_local].fields.contains_key(&0) == false {
+                            if !values[lv_local].fields.contains_key(&0) {
                                 let mut lvl0 = ValueNode::new(lv_local, values.len(), false, true);
                                 lvl0.birth = values[lv_local].birth;
                                 lvl0.field_info.push(0);

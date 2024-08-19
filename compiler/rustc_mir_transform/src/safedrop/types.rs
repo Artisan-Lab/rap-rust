@@ -2,20 +2,29 @@ use rustc_middle::ty;
 use rustc_middle::ty::{Ty, TyCtxt};
 use super::corner_handle::is_corner_adt;
 
-pub fn kind<'tcx>(current_ty: Ty<'tcx>) -> usize {
+#[derive(PartialEq,Debug,Copy,Clone)]
+pub enum TyKind {
+    Adt,
+    RawPtr,
+    Tuple,
+    CornerCase,
+    Ref,
+}
+
+pub fn kind<'tcx>(current_ty: Ty<'tcx>) -> TyKind {
     match current_ty.kind() {
-        ty::RawPtr(..) => 1,
-        ty::Ref(..) => 4,
-        ty::Tuple(..) => 2,
+        ty::RawPtr(..) => TyKind::RawPtr,
+        ty::Ref(..) => TyKind::Ref,
+        ty::Tuple(..) => TyKind::Tuple,
         ty::Adt(ref adt_def, _) => {
             if is_corner_adt(format!("{:?}", adt_def)) {
-                return 3;
+                return TyKind::CornerCase;
             }
             else{
-                return 0;
+                return TyKind::Adt;
             }
         },
-        _ => 0,
+        _ => TyKind::Adt,
     }
 }
 

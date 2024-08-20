@@ -28,7 +28,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
 
     pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool) {
         let mut record = FxHashSet::default();
-        if self.values[used].may_drop && (!self.values[used].is_ptr() || self.values[used].index != origin || is_func_call)
+        if self.values[used].may_drop && (!self.values[used].is_ptr() || self.values[used].local != origin || is_func_call)
         && self.exist_dead(used, &mut record, false) == true 
         && self.bug_records.uaf_bugs.contains(&span) == false {            
             self.bug_records.uaf_bugs.insert(span.clone());
@@ -62,7 +62,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
     }
 
     pub fn df_check(&mut self, drop: usize, span: Span) -> bool {
-        let root = self.values[drop].index;
+        let root = self.values[drop].local;
         if self.values[drop].is_alive() == false 
         && self.bug_records.df_bugs.contains_key(&root) == false {
             self.bug_records.df_bugs.insert(root, span.clone());
@@ -129,20 +129,20 @@ impl<'tcx> SafeDropGraph<'tcx> {
 
     //merge the result of current path to the final result.
     pub fn merge_results(&mut self, results_nodes: Vec<ValueNode>, is_cleanup: bool) {
-        for node in results_nodes.iter(){
-            if node.index <= self.arg_size{
-                if node.alias[0] != node.local || node.alias.len() > 1 {
+        for node in results_nodes.iter() {
+            if node.local <= self.arg_size {
+                if node.alias[0] != node.index || node.alias.len() > 1 {
                     for alias in node.alias.clone(){
-                        if results_nodes[alias].index <= self.arg_size
-                        && !self.return_set.contains(&(node.local, alias))
-                        && alias != node.local
-                        && node.index != results_nodes[alias].index {
-                            self.return_set.insert((node.local, alias));
+                        if results_nodes[alias].local <= self.arg_size
+                        && !self.return_set.contains(&(node.index, alias))
+                        && alias != node.index
+                        && node.local != results_nodes[alias].local {
+                            self.return_set.insert((node.index, alias));
                             let left_node = node;
                             let right_node = &results_nodes[alias];
                             let mut new_alias = RetAlias::new(0, 
-                                left_node.index, left_node.may_drop, left_node.need_drop,
-                                right_node.index, right_node.may_drop, right_node.need_drop
+                                left_node.local, left_node.may_drop, left_node.need_drop,
+                                right_node.local, right_node.may_drop, right_node.need_drop
 			                );
                             new_alias.left = left_node.field_info.clone();
                             new_alias.right = right_node.field_info.clone();
@@ -150,8 +150,8 @@ impl<'tcx> SafeDropGraph<'tcx> {
                         }
                     }
                 }
-                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.local <= self.arg_size {
-                    self.ret_alias.dead.insert(node.local);
+                if node.is_ptr() && is_cleanup == false && node.is_alive() == false && node.index <= self.arg_size {
+                    self.ret_alias.dead.insert(node.index);
                 }
             }
         }

@@ -91,8 +91,8 @@ impl<'tcx> BlockNode<'tcx>{
 
 #[derive(Debug,Clone)]
 pub struct ValueNode {
-    pub local: usize, // location?
     pub index: usize, // node index
+    pub local: usize, // location?
     pub need_drop: bool,
     pub may_drop: bool,
     pub kind: TyKind,
@@ -106,7 +106,7 @@ pub struct ValueNode {
 impl ValueNode {
     pub fn new(index: usize, local: usize, need_drop: bool, may_drop: bool) -> Self {
         let mut eq = Vec::new();
-        eq.push(local);
+        eq.push(index);
         ValueNode { 
             index: index, 
             local: local, 
@@ -247,16 +247,16 @@ impl<'tcx> SafeDropGraph<'tcx> {
                              * We simplify it as: lvl0
                              */
                             if !values[lv_local].fields.contains_key(&0) {
-                                let mut lvl0 = ValueNode::new(lv_local, values.len(), false, true);
+                                let mut lvl0 = ValueNode::new(values.len(), lv_local, false, true);
                                 lvl0.birth = values[lv_local].birth;
                                 lvl0.field_info.push(0);
-                                values[lv_local].fields.insert(0, lvl0.local);
+                                values[lv_local].fields.insert(0, lvl0.index);
                                 values.push(lvl0);
                             }
                             match x {
                                 Operand::Copy(ref p) | Operand::Move(ref p) => {
                                     let rv_local = p.local.as_usize();
-                                    if values[lv_local].may_drop && values[rv_local].may_drop{
+                                    if values[lv_local].may_drop && values[rv_local].may_drop {
                                         let rv = p.clone();
                                         let assign = Assignment::new(lv, rv, AssignType::InitBox, span);
                                         cur_bb.assignments.push(assign);

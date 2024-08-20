@@ -169,19 +169,19 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 ProjectionElem::Field(field, ty) => {
                     if is_right && self.values[proj_id].alias[0] != proj_id {
                         proj_id = self.values[proj_id].alias[0];
-                        local = self.values[proj_id].index;
+                        local = self.values[proj_id].local;
                     }
                     let field_idx = field.as_usize();
                     if !self.values[proj_id].fields.contains_key(&field_idx) {
                         let param_env = tcx.param_env(self.def_id);
                         let need_drop = ty.needs_drop(tcx, param_env);
                         let may_drop = !is_not_drop(tcx, ty);
-                        let mut node = ValueNode::new(local, new_id, need_drop, need_drop || may_drop);
+                        let mut node = ValueNode::new(new_id, local, need_drop, need_drop || may_drop);
                         node.kind = kind(ty);
                         node.birth = self.values[proj_id].birth;
                         node.field_info = self.values[proj_id].field_info.clone();
                         node.field_info.push(field_idx);
-                        self.values[proj_id].fields.insert(field_idx, node.local);
+                        self.values[proj_id].fields.insert(field_idx, node.index);
                         self.values.push(node);
                     }
                     proj_id = *self.values[proj_id].fields.get(&field_idx).unwrap();
@@ -252,7 +252,7 @@ impl FnRetAlias {
 
 //instruction to assign alias for a variable.
 pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes: &mut Vec<ValueNode>) {
-    if nodes[lv].index == nodes[rv].index {
+    if nodes[lv].local == nodes[rv].local {
         return;
     }
     if move_set.contains(&lv) {
@@ -264,12 +264,12 @@ pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes:
     }
     for son in nodes[rv].fields.clone().into_iter(){
         if nodes[lv].fields.contains_key(&son.0) == false {
-            let mut node = ValueNode::new(nodes[lv].index, nodes.len(), nodes[son.1].need_drop, nodes[son.1].may_drop);
+            let mut node = ValueNode::new(nodes.len(), nodes[lv].local, nodes[son.1].need_drop, nodes[son.1].may_drop);
             node.kind = nodes[son.1].kind;
             node.birth = nodes[lv].birth;
             node.field_info = nodes[lv].field_info.clone();
             node.field_info.push(son.0);
-            nodes[lv].fields.insert(son.0, node.local);
+            nodes[lv].fields.insert(son.0, node.index);
             nodes.push(node);
         }
         let l_son = *(nodes[lv].fields.get(&son.0).unwrap());
@@ -291,12 +291,12 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
         if nodes[lv].fields.contains_key(&index) == false {
             let need_drop = ret_alias.left_need_drop;
             let may_drop = ret_alias.left_may_drop;
-            let mut node = ValueNode::new(left_init, nodes.len(), need_drop, may_drop);
+            let mut node = ValueNode::new(nodes.len(), left_init, need_drop, may_drop);
             node.kind = TyKind::RawPtr;
             node.birth = nodes[lv].birth;
             node.field_info = nodes[lv].field_info.clone();
             node.field_info.push(*index);
-            nodes[lv].fields.insert(*index, node.local);
+            nodes[lv].fields.insert(*index, node.index);
             nodes.push(node);
         }
         lv = *nodes[lv].fields.get(&index).unwrap();
@@ -304,17 +304,17 @@ pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_al
     for index in ret_alias.right.iter() {
         if nodes[rv].alias[0] != rv {
             rv = nodes[rv].alias[0];
-            right_init = nodes[rv].index;
+            right_init = nodes[rv].local;
         }
         if nodes[rv].fields.contains_key(&index) == false {
             let need_drop = ret_alias.right_need_drop;
             let may_drop = ret_alias.right_may_drop;
-            let mut node = ValueNode::new(right_init, nodes.len(), need_drop, may_drop);
+            let mut node = ValueNode::new(nodes.len(), right_init, need_drop, may_drop);
             node.kind = TyKind::RawPtr;
             node.birth = nodes[rv].birth;
             node.field_info = nodes[rv].field_info.clone();
             node.field_info.push(*index);
-            nodes[rv].fields.insert(*index, node.local);
+            nodes[rv].fields.insert(*index, node.index);
             nodes.push(node);
         }
         rv = *nodes[rv].fields.get(&index).unwrap();

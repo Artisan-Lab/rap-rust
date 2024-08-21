@@ -73,16 +73,16 @@ impl<'tcx> SafeDropGraph<'tcx> {
             return;
         }
         let cur_block = self.blocks[self.scc_indices[bb_index]].clone();
-        let mut move_set = FxHashSet::default();
-        self.alias_bb(self.scc_indices[bb_index], tcx, &mut move_set);
-        self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map, &mut move_set);
+        let mut alias_set = FxHashSet::default();
+        self.alias_bb(self.scc_indices[bb_index], tcx, &mut alias_set);
+        self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map, &mut alias_set);
         self.drop_check(self.scc_indices[bb_index], tcx);
 
         /* Handle cases if the current block is a merged scc block with sub block */
         if cur_block.scc_sub_blocks.len() > 0{
             for i in cur_block.scc_sub_blocks.clone(){
-                self.alias_bb(i, tcx, &mut move_set);
-                self.alias_bbcall(i, tcx,  func_map, &mut move_set);
+                self.alias_bb(i, tcx, &mut alias_set);
+                self.alias_bbcall(i, tcx, func_map, &mut alias_set);
                 self.drop_check(i, tcx);
             }
         }

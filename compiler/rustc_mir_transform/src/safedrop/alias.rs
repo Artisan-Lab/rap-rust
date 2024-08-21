@@ -12,7 +12,7 @@ use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     /* alias analysis for a single block */
-    pub fn alias_bb(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, move_set: &mut FxHashSet<usize>) {
+    pub fn alias_bb(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, alias_set: &mut FxHashSet<usize>) {
         for stmt in self.blocks[bb_index].const_value.clone() {
             self.constant.insert(stmt.0, stmt.1);
         }
@@ -20,23 +20,26 @@ impl<'tcx> SafeDropGraph<'tcx>{
         for assign in cur_block.assignments {
             let mut lv_aliaset_idx = self.projection(tcx, false, assign.lv.clone());
             let rv_aliaset_idx = self.projection(tcx, true, assign.rv.clone());
-            if assign.atype == AssignType::Variant {
-                self.values[lv_aliaset_idx].alias[0] = rv_aliaset_idx;
-                continue;
+            match assign.atype {
+                AssignType::Variant => {
+                    self.values[lv_aliaset_idx].alias[0] = rv_aliaset_idx;
+                    continue;
+                },
+                AssignType::InitBox => {
+                    lv_aliaset_idx = *self.values[lv_aliaset_idx].fields.get(&0).unwrap();
+                },
+                _ => { }, // Copy or Move
             }
             self.uaf_check(rv_aliaset_idx, assign.span, assign.rv.local.as_usize(), false);
             self.fill_birth(lv_aliaset_idx, self.scc_indices[bb_index] as isize);
-            
-            if assign.atype == AssignType::InitBox {
-                lv_aliaset_idx = *self.values[lv_aliaset_idx].fields.get(&0).unwrap();
-                self.values[lv_aliaset_idx].birth = self.scc_indices[bb_index] as isize;
+            if self.values[lv_aliaset_idx].local != self.values[rv_aliaset_idx].local {
+                self.merge_alias(alias_set, lv_aliaset_idx, rv_aliaset_idx);
             }
-            merge_alias(move_set, lv_aliaset_idx, rv_aliaset_idx, &mut self.values);
         }        
     }
 
     /* Check the aliases introduced by the terminators (function call) of a scc block */
-    pub fn alias_bbcall(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, move_set: &mut FxHashSet<usize>){
+    pub fn alias_bbcall(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, alias_set: &mut FxHashSet<usize>){
         let cur_block = self.blocks[bb_index].clone();
         for call in cur_block.calls {
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
@@ -81,7 +84,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable() {
                                             continue;
                                         }
-                                        merge(move_set, &mut self.values, assign, &merge_vec);
+                                        self.merge(alias_set, assign, &merge_vec);
                                     }
                                     for dead in assignments.dead.iter() {
                                         let drop = merge_vec[*dead];
@@ -102,7 +105,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable(){
                                             continue;
                                         }
-                                        merge(move_set, &mut self.values, assign, &merge_vec);
+                                        self.merge(alias_set, assign, &merge_vec);
                                     }
                                     for dead in ret_alias.dead.iter() {
                                         let drop = merge_vec[*dead];
@@ -113,7 +116,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             }
                             else {
                                 if self.values[lv].may_drop {
-                                    if self.corner_handle(lv, &merge_vec, move_set, *target_id){
+                                    if self.corner_handle(lv, &merge_vec, alias_set, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
@@ -123,7 +126,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         }
                                     }
                                     if right_set.len() == 1 {
-                                        merge_alias(move_set, lv, right_set[0], &mut self.values);
+                                        self.merge_alias(alias_set, lv, right_set[0]);
                                     }
                                 }
                             }
@@ -134,7 +137,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
     }
 
-    // assign to the variable _x, we will set the birth of _x and its child nodes a new birth.
+    // assign to the variable _x, we will set the birth of _x and its child self.values a new birth.
     pub fn fill_birth(&mut self, node: usize, birth: isize) {
         self.values[node].birth = birth;
         //TODO: check the correctness.
@@ -191,6 +194,74 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         return proj_id;
     }
+
+    //instruction to assign alias for a variable.
+    pub fn merge_alias(&mut self, alias_set: &mut FxHashSet<usize>, lv: usize, rv: usize) {
+        if alias_set.contains(&lv) {
+            let mut alias_clone = self.values[rv].alias.clone();
+            self.values[lv].alias.append(&mut alias_clone);
+        } else {
+            alias_set.insert(lv);
+            self.values[lv].alias = self.values[rv].alias.clone();
+        }
+        for field in self.values[rv].fields.clone().into_iter(){
+            if !self.values[lv].fields.contains_key(&field.0) {
+                let mut node = ValueNode::new(self.values.len(), self.values[lv].local, self.values[field.1].need_drop, self.values[field.1].may_drop);
+                node.kind = self.values[field.1].kind;
+                node.birth = self.values[lv].birth;
+                node.field_info = self.values[lv].field_info.clone();
+                node.field_info.push(field.0);
+                self.values[lv].fields.insert(field.0, node.index);
+                self.values.push(node);
+            }
+            let lv_field = *(self.values[lv].fields.get(&field.0).unwrap());
+            self.merge_alias(alias_set, lv_field, field.1);
+        }
+    }
+    //inter-procedure instruction to merge alias.
+    pub fn merge(&mut self, alias_set: &mut FxHashSet<usize>, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
+    if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
+        rap_error!("Vector error!");
+        return;
+    }
+    let left_init = arg_vec[ret_alias.left_index];
+    let mut right_init = arg_vec[ret_alias.right_index];
+    let mut lv = left_init;
+    let mut rv = right_init;
+    for index in ret_alias.left.iter() {
+        if self.values[lv].fields.contains_key(&index) == false {
+            let need_drop = ret_alias.left_need_drop;
+            let may_drop = ret_alias.left_may_drop;
+            let mut node = ValueNode::new(self.values.len(), left_init, need_drop, may_drop);
+            node.kind = TyKind::RawPtr;
+            node.birth = self.values[lv].birth;
+            node.field_info = self.values[lv].field_info.clone();
+            node.field_info.push(*index);
+            self.values[lv].fields.insert(*index, node.index);
+            self.values.push(node);
+        }
+        lv = *self.values[lv].fields.get(&index).unwrap();
+    }
+    for index in ret_alias.right.iter() {
+        if self.values[rv].alias[0] != rv {
+            rv = self.values[rv].alias[0];
+            right_init = self.values[rv].local;
+        }
+        if self.values[rv].fields.contains_key(&index) == false {
+            let need_drop = ret_alias.right_need_drop;
+            let may_drop = ret_alias.right_may_drop;
+            let mut node = ValueNode::new(self.values.len(), right_init, need_drop, may_drop);
+            node.kind = TyKind::RawPtr;
+            node.birth = self.values[rv].birth;
+            node.field_info = self.values[rv].field_info.clone();
+            node.field_info.push(*index);
+            self.values[rv].fields.insert(*index, node.index);
+            self.values.push(node);
+        }
+        rv = *self.values[rv].fields.get(&index).unwrap();
+    }
+    self.merge_alias(alias_set, lv, rv);
+}
 }
 /*
  * To store the alias relationships among arguments and return values.
@@ -250,74 +321,4 @@ impl FnRetAlias {
     }
 }
 
-//instruction to assign alias for a variable.
-pub fn merge_alias(move_set: &mut FxHashSet<usize>, lv: usize, rv: usize, nodes: &mut Vec<ValueNode>) {
-    if nodes[lv].local == nodes[rv].local {
-        return;
-    }
-    if move_set.contains(&lv) {
-        let mut alias_clone = nodes[rv].alias.clone();
-        nodes[lv].alias.append(&mut alias_clone);
-    } else {
-        move_set.insert(lv);
-        nodes[lv].alias = nodes[rv].alias.clone();
-    }
-    for son in nodes[rv].fields.clone().into_iter(){
-        if nodes[lv].fields.contains_key(&son.0) == false {
-            let mut node = ValueNode::new(nodes.len(), nodes[lv].local, nodes[son.1].need_drop, nodes[son.1].may_drop);
-            node.kind = nodes[son.1].kind;
-            node.birth = nodes[lv].birth;
-            node.field_info = nodes[lv].field_info.clone();
-            node.field_info.push(son.0);
-            nodes[lv].fields.insert(son.0, node.index);
-            nodes.push(node);
-        }
-        let l_son = *(nodes[lv].fields.get(&son.0).unwrap());
-        merge_alias(move_set, l_son, son.1, nodes);
-    }
-}
 
-//inter-procedure instruction to merge alias.
-pub fn merge(move_set: &mut FxHashSet<usize>, nodes: &mut Vec<ValueNode>, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
-    if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
-        rap_error!("Vector error!");
-        return;
-    }
-    let left_init = arg_vec[ret_alias.left_index];
-    let mut right_init = arg_vec[ret_alias.right_index];
-    let mut lv = left_init;
-    let mut rv = right_init;
-    for index in ret_alias.left.iter() {
-        if nodes[lv].fields.contains_key(&index) == false {
-            let need_drop = ret_alias.left_need_drop;
-            let may_drop = ret_alias.left_may_drop;
-            let mut node = ValueNode::new(nodes.len(), left_init, need_drop, may_drop);
-            node.kind = TyKind::RawPtr;
-            node.birth = nodes[lv].birth;
-            node.field_info = nodes[lv].field_info.clone();
-            node.field_info.push(*index);
-            nodes[lv].fields.insert(*index, node.index);
-            nodes.push(node);
-        }
-        lv = *nodes[lv].fields.get(&index).unwrap();
-    }
-    for index in ret_alias.right.iter() {
-        if nodes[rv].alias[0] != rv {
-            rv = nodes[rv].alias[0];
-            right_init = nodes[rv].local;
-        }
-        if nodes[rv].fields.contains_key(&index) == false {
-            let need_drop = ret_alias.right_need_drop;
-            let may_drop = ret_alias.right_may_drop;
-            let mut node = ValueNode::new(nodes.len(), right_init, need_drop, may_drop);
-            node.kind = TyKind::RawPtr;
-            node.birth = nodes[rv].birth;
-            node.field_info = nodes[rv].field_info.clone();
-            node.field_info.push(*index);
-            nodes[rv].fields.insert(*index, node.index);
-            nodes.push(node);
-        }
-        rv = *nodes[rv].fields.get(&index).unwrap();
-    }
-    merge_alias(move_set, lv, rv, nodes);
-}

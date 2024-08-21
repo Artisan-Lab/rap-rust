@@ -1,7 +1,6 @@
 use rustc_middle::ty::TyCtxt;
 use rustc_middle::mir::{TerminatorKind, Operand};
 use rustc_middle::mir::Operand::{Copy, Move, Constant};
-use rustc_data_structures::fx::FxHashSet;
 
 use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
 use log::Log;
@@ -66,6 +65,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
         self.values = backup_values;
         self.constant = backup_constant;
     }
+
     // the core function of the safedrop.
     pub fn check(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap) {
         self.visit_times += 1;
@@ -73,16 +73,16 @@ impl<'tcx> SafeDropGraph<'tcx> {
             return;
         }
         let cur_block = self.blocks[self.scc_indices[bb_index]].clone();
-        let mut alias_set = FxHashSet::default();
-        self.alias_bb(self.scc_indices[bb_index], tcx, &mut alias_set);
-        self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map, &mut alias_set);
+        self.alias_set.clear(); // TODO: why? to be consistent with the original SafeDrop
+        self.alias_bb(self.scc_indices[bb_index], tcx);
+        self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map);
         self.drop_check(self.scc_indices[bb_index], tcx);
 
         /* Handle cases if the current block is a merged scc block with sub block */
         if cur_block.scc_sub_blocks.len() > 0{
             for i in cur_block.scc_sub_blocks.clone(){
-                self.alias_bb(i, tcx, &mut alias_set);
-                self.alias_bbcall(i, tcx, func_map, &mut alias_set);
+                self.alias_bb(i, tcx);
+                self.alias_bbcall(i, tcx, func_map);
                 self.drop_check(i, tcx);
             }
         }

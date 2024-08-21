@@ -165,6 +165,8 @@ pub struct SafeDropGraph<'tcx>{
     pub ret_alias: FnRetAlias,
     // used for filtering duplicate alias assignments in return results.
     pub return_set: FxHashSet<(usize, usize)>,
+    // final alias analysis result
+    pub alias_set: FxHashSet<usize>,
     // record the information of bugs for the function.
     pub bug_records: BugRecords,
     // a threhold to avoid path explosion.
@@ -401,6 +403,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
             count: 0,
             ret_alias: FnRetAlias::new(arg_size),
             return_set: FxHashSet::default(),
+            alias_set: FxHashSet::default(),
             bug_records: BugRecords::new(),
             visit_times: 0,
         }

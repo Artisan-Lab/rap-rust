@@ -1,4 +1,3 @@
-use rustc_data_structures::fx::FxHashSet;
 use rustc_span::def_id::DefId;
 use super::safedrop::*;
 use super::graph::*;
@@ -10,7 +9,6 @@ impl<'tcx> SafeDropGraph<'tcx> {
         &mut self,
         _left_ssa: usize,
         _merge_vec: &Vec<usize>,
-        _move_set: &mut FxHashSet<usize>,
         def_id: DefId,
     ) -> bool {
         // CASE 1: function::call_mut

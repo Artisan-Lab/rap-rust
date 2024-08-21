@@ -12,7 +12,7 @@ use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
     /* alias analysis for a single block */
-    pub fn alias_bb(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, alias_set: &mut FxHashSet<usize>) {
+    pub fn alias_bb(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>) {
         for stmt in self.blocks[bb_index].const_value.clone() {
             self.constant.insert(stmt.0, stmt.1);
         }
@@ -33,13 +33,13 @@ impl<'tcx> SafeDropGraph<'tcx>{
             self.uaf_check(rv_aliaset_idx, assign.span, assign.rv.local.as_usize(), false);
             self.fill_birth(lv_aliaset_idx, self.scc_indices[bb_index] as isize);
             if self.values[lv_aliaset_idx].local != self.values[rv_aliaset_idx].local {
-                self.merge_alias(alias_set, lv_aliaset_idx, rv_aliaset_idx);
+                self.merge_alias(lv_aliaset_idx, rv_aliaset_idx);
             }
         }        
     }
 
     /* Check the aliases introduced by the terminators (function call) of a scc block */
-    pub fn alias_bbcall(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap, alias_set: &mut FxHashSet<usize>){
+    pub fn alias_bbcall(&mut self, bb_index: usize, tcx: TyCtxt<'tcx>, func_map: &mut FuncMap){
         let cur_block = self.blocks[bb_index].clone();
         for call in cur_block.calls {
             if let TerminatorKind::Call { ref func, ref args, ref destination, target:_, unwind: _, call_source: _, fn_span: _ } = call.kind {
@@ -84,7 +84,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable() {
                                             continue;
                                         }
-                                        self.merge(alias_set, assign, &merge_vec);
+                                        self.merge(assign, &merge_vec);
                                     }
                                     for dead in assignments.dead.iter() {
                                         let drop = merge_vec[*dead];
@@ -105,7 +105,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         if !assign.valuable(){
                                             continue;
                                         }
-                                        self.merge(alias_set, assign, &merge_vec);
+                                        self.merge(assign, &merge_vec);
                                     }
                                     for dead in ret_alias.dead.iter() {
                                         let drop = merge_vec[*dead];
@@ -116,7 +116,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                             }
                             else {
                                 if self.values[lv].may_drop {
-                                    if self.corner_handle(lv, &merge_vec, alias_set, *target_id){
+                                    if self.corner_handle(lv, &merge_vec, *target_id){
                                         continue;
                                     }
                                     let mut right_set = Vec::new(); 
@@ -126,7 +126,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                                         }
                                     }
                                     if right_set.len() == 1 {
-                                        self.merge_alias(alias_set, lv, right_set[0]);
+                                        self.merge_alias(lv, right_set[0]);
                                     }
                                 }
                             }
@@ -196,12 +196,12 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
 
     //instruction to assign alias for a variable.
-    pub fn merge_alias(&mut self, alias_set: &mut FxHashSet<usize>, lv: usize, rv: usize) {
-        if alias_set.contains(&lv) {
+    pub fn merge_alias(&mut self, lv: usize, rv: usize) {
+        if self.alias_set.contains(&lv) {
             let mut alias_clone = self.values[rv].alias.clone();
             self.values[lv].alias.append(&mut alias_clone);
         } else {
-            alias_set.insert(lv);
+            self.alias_set.insert(lv);
             self.values[lv].alias = self.values[rv].alias.clone();
         }
         for field in self.values[rv].fields.clone().into_iter(){
@@ -215,11 +215,11 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 self.values.push(node);
             }
             let lv_field = *(self.values[lv].fields.get(&field.0).unwrap());
-            self.merge_alias(alias_set, lv_field, field.1);
+            self.merge_alias(lv_field, field.1);
         }
     }
     //inter-procedure instruction to merge alias.
-    pub fn merge(&mut self, alias_set: &mut FxHashSet<usize>, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
+    pub fn merge(&mut self, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
     if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
         rap_error!("Vector error!");
         return;
@@ -260,7 +260,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
         }
         rv = *self.values[rv].fields.get(&index).unwrap();
     }
-    self.merge_alias(alias_set, lv, rv);
+    self.merge_alias(lv, rv);
 }
 }
 /*

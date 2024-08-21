@@ -119,7 +119,6 @@ use rustc_fluent_macro::fluent_messages;
 pub mod safedrop;
 use safedrop::safedrop::*;
 use safedrop::graph::*;
-use safedrop::bug_records::*;
 use safedrop::log::*;
 use log::Log;
 

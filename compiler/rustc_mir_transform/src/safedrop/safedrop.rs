@@ -1,19 +1,34 @@
 use rustc_middle::ty::TyCtxt;
 use rustc_middle::mir::{TerminatorKind, Operand};
 use rustc_middle::mir::Operand::{Copy, Move, Constant};
+use rustc_data_structures::fx::{FxHashSet, FxHashMap};
 
 use crate::{rap_error, RapLogLevel, record_msg, RAP_LOGGER};
 use log::Log;
 
 use super::graph::*;
-use super::bug_records::*;
+use super::alias::*;
 
 pub const DROP:usize = 1634;
 pub const DROP_IN_PLACE:usize = 2160;
 pub const CALL_MUT:usize = 3022;
 pub const NEXT:usize = 7587;
 
+pub const DEFAULT_PATH:usize = 99999;
 pub const VISIT_LIMIT:usize = 10000;
+
+//struct to cache the results for analyzed functions.
+#[derive(Clone)]
+pub struct FuncMap {
+    pub map: FxHashMap<usize, FnRetAlias>,
+    pub set: FxHashSet<usize>,
+}
+
+impl FuncMap {
+    pub fn new() -> FuncMap {
+        FuncMap { map: FxHashMap::default(), set: FxHashSet::default() }
+    }
+}
 
 impl<'tcx> SafeDropGraph<'tcx> {
     // analyze the drop statement and update the liveness for nodes.
@@ -73,7 +88,6 @@ impl<'tcx> SafeDropGraph<'tcx> {
             return;
         }
         let cur_block = self.blocks[self.scc_indices[bb_index]].clone();
-        self.alias_set.clear(); // TODO: why? to be consistent with the original SafeDrop
         self.alias_bb(self.scc_indices[bb_index], tcx);
         self.alias_bbcall(self.scc_indices[bb_index], tcx, func_map);
         self.drop_check(self.scc_indices[bb_index], tcx);
@@ -180,7 +194,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 }
                 let all_targets = targets.all_targets();
                 let next_index = all_targets[all_targets.len()-1].as_usize();
-                let path_discr_val = 99999; // to indicate the default path;
+                let path_discr_val = DEFAULT_PATH; // to indicate the default path;
                 self.split_check_with_cond(next_index, path_discr_id, path_discr_val, tcx, func_map);
             } else {
                 for i in cur_block.next {

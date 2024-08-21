@@ -3,22 +3,9 @@ use rustc_span::symbol::Symbol;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use crate::{rap_warn};
 use super::{log::RapLogLevel, log::record_msg, log::RAP_LOGGER};
-use super::alias::FnRetAlias;
 
 use log::Log;
 
-//struct to cache the results for analyzed functions.
-#[derive(Clone)]
-pub struct FuncMap {
-    pub map: FxHashMap<usize, FnRetAlias>,
-    pub set: FxHashSet<usize>,
-}
-
-impl FuncMap {
-    pub fn new() -> FuncMap {
-        FuncMap { map: FxHashMap::default(), set: FxHashSet::default() }
-    }
-}
 
 //structure to record the existed bugs.
 pub struct BugRecords {

@@ -7,7 +7,7 @@ use crate::rap_error;
 use super::graph::*;
 use super::types::*;
 use super::log::*;
-use super::bug_records::*;
+use super::safedrop::*;
 use log::Log;
 
 impl<'tcx> SafeDropGraph<'tcx>{
@@ -197,11 +197,10 @@ impl<'tcx> SafeDropGraph<'tcx>{
 
     //instruction to assign alias for a variable.
     pub fn merge_alias(&mut self, lv: usize, rv: usize) {
-        if self.alias_set.contains(&lv) {
+        if self.values[lv].alias.len() > 1 {
             let mut alias_clone = self.values[rv].alias.clone();
             self.values[lv].alias.append(&mut alias_clone);
         } else {
-            self.alias_set.insert(lv);
             self.values[lv].alias = self.values[rv].alias.clone();
         }
         for field in self.values[rv].fields.clone().into_iter(){

@@ -2,6 +2,7 @@ use rustc_middle::mir::SourceInfo;
 use rustc_span::Span;
 use rustc_span::symbol::Symbol;
 use rustc_data_structures::fx::FxHashSet;
+
 use super::graph::*;
 use super::utils::*;
 use super::alias::*;
@@ -25,12 +26,14 @@ impl<'tcx> SafeDropGraph<'tcx> {
         self.bug_records.dp_bug_output(fn_name);
     }
 
-
-    pub fn uaf_check(&mut self, used: usize, span: Span, origin: usize, is_func_call: bool) {
+    pub fn uaf_check(&mut self, aliaset_idx: usize, span: Span, local: usize, is_func_call: bool) {
         let mut record = FxHashSet::default();
-        if self.values[used].may_drop && (!self.values[used].is_ptr() || self.values[used].local != origin || is_func_call)
-        && self.exist_dead(used, &mut record, false) == true 
-        && self.bug_records.uaf_bugs.contains(&span) == false {            
+        if self.values[aliaset_idx].may_drop 
+            && (!self.values[aliaset_idx].is_ptr() 
+                || self.values[aliaset_idx].local != local
+                || is_func_call)
+            && self.exist_dead(aliaset_idx, &mut record, false)
+            && !self.bug_records.uaf_bugs.contains(&span) {            
             self.bug_records.uaf_bugs.insert(span.clone());
         }
     }

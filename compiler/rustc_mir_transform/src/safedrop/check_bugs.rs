@@ -147,8 +147,8 @@ impl<'tcx> SafeDropGraph<'tcx> {
                                 left_node.local, left_node.may_drop, left_node.need_drop,
                                 right_node.local, right_node.may_drop, right_node.need_drop
 			                );
-                            new_alias.left = left_node.field_info.clone();
-                            new_alias.right = right_node.field_info.clone();
+                            new_alias.left = self.get_field_seq(left_node); 
+                            new_alias.right = self.get_field_seq(right_node); 
                             self.ret_alias.alias_vec.push(new_alias);
                         }
                     }
@@ -158,6 +158,16 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 }
             }
         }
+    }
+
+    pub fn get_field_seq(&self, value: &ValueNode)-> Vec<usize> { 
+        let mut field_id_seq = vec![];
+        let mut node_ref = value;
+        while node_ref.field_id != usize::MAX {
+            field_id_seq.push(node_ref.field_id);
+            node_ref = &self.values[value.father]; 
+        }
+        return field_id_seq;
     }
 }
 

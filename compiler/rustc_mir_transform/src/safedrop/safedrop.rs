@@ -14,7 +14,6 @@ pub const DROP_IN_PLACE:usize = 2160;
 pub const CALL_MUT:usize = 3022;
 pub const NEXT:usize = 7587;
 
-pub const DEFAULT_PATH:usize = 99999;
 pub const VISIT_LIMIT:usize = 10000;
 
 //struct to cache the results for analyzed functions.
@@ -194,7 +193,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                 }
                 let all_targets = targets.all_targets();
                 let next_index = all_targets[all_targets.len()-1].as_usize();
-                let path_discr_val = DEFAULT_PATH; // to indicate the default path;
+                let path_discr_val = usize::MAX; // to indicate the default path;
                 self.split_check_with_cond(next_index, path_discr_id, path_discr_val, tcx, func_map);
             } else {
                 for i in cur_block.next {

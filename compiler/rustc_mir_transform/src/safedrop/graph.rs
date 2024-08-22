@@ -97,27 +97,25 @@ pub struct ValueNode {
     pub may_drop: bool,
     pub kind: TyKind,
     pub father: usize,
+    pub field_id: usize, // the field id of its father node.
     pub alias: Vec<usize>,
     pub birth: isize,
     pub fields: FxHashMap<usize, usize>,
-    pub field_info: Vec<usize>, // the index of field in each level, e.g., 1.2.3?
 }
 
 impl ValueNode {
     pub fn new(index: usize, local: usize, need_drop: bool, may_drop: bool) -> Self {
-        let mut eq = Vec::new();
-        eq.push(index);
         ValueNode { 
             index: index, 
             local: local, 
             need_drop: need_drop, 
             father: local, 
-            alias: eq, 
+            field_id: usize::MAX, 
+            alias: vec![index], 
             birth: 0, 
             may_drop: may_drop, 
             kind: TyKind::Adt, 
             fields: FxHashMap::default(), 
-            field_info: Vec::<usize>::new() 
         }
     }
 
@@ -159,8 +157,6 @@ pub struct SafeDropGraph<'tcx>{
     pub scc_indices: Vec<usize>,
     // record the constant value during safedrop checking, i.e., which id has what value.
     pub constant: FxHashMap<usize, usize>,
-    // used for tarjan algorithmn.
-    pub count: usize,
     // contains the return results for inter-procedure analysis.
     pub ret_alias: FnRetAlias,
     // used for filtering duplicate alias assignments in return results.
@@ -168,7 +164,7 @@ pub struct SafeDropGraph<'tcx>{
     // record the information of bugs for the function.
     pub bug_records: BugRecords,
     // a threhold to avoid path explosion.
-    pub visit_times: usize
+    pub visit_times: usize,
 }
 
 impl<'tcx> SafeDropGraph<'tcx> {
@@ -249,7 +245,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
                             if !values[lv_local].fields.contains_key(&0) {
                                 let mut lvl0 = ValueNode::new(values.len(), lv_local, false, true);
                                 lvl0.birth = values[lv_local].birth;
-                                lvl0.field_info.push(0);
+                                lvl0.field_id = 0;
                                 values[lv_local].fields.insert(0, lvl0.index);
                                 values.push(lvl0);
                             }
@@ -398,7 +394,6 @@ impl<'tcx> SafeDropGraph<'tcx> {
             arg_size: arg_size,
             scc_indices: scc_indices,
             constant: FxHashMap::default(), 
-            count: 0,
             ret_alias: FnRetAlias::new(arg_size),
             return_set: FxHashSet::default(),
             bug_records: BugRecords::new(),
@@ -407,17 +402,16 @@ impl<'tcx> SafeDropGraph<'tcx> {
     }
 
     pub fn tarjan(&mut self, index: usize, stack: &mut Vec<usize>, instack: &mut FxHashSet<usize>,
-                  dfn: &mut Vec<usize>, low: &mut Vec<usize>) {
-        dfn[index] = self.count;
-        low[index] = self.count;
-        self.count += 1;
+                  dfn: &mut Vec<usize>, low: &mut Vec<usize>, time: &mut usize) {
+        dfn[index] = *time;
+        low[index] = *time;
+        *time += 1;
         instack.insert(index);
         stack.push(index);
         let out_set = self.blocks[index].next.clone();    
-        for i in out_set {
-            let target = i;
-            if dfn[target] == 0{
-                self.tarjan(target, stack, instack, dfn, low);
+        for target in out_set {
+            if dfn[target] == 0 {
+                self.tarjan(target, stack, instack, dfn, low, time);
                 low[index] = min(low[index], low[target]);
             }
             else {
@@ -465,6 +459,7 @@ impl<'tcx> SafeDropGraph<'tcx> {
         let mut instack = FxHashSet::<usize>::default();
         let mut dfn = vec![0 as usize; self.blocks.len()];
         let mut low = vec![0 as usize; self.blocks.len()];
-        self.tarjan(0, &mut stack, &mut instack, &mut dfn, &mut low);
+        let mut time = 0;
+        self.tarjan(0, &mut stack, &mut instack, &mut dfn, &mut low, &mut time);
     }
 }

@@ -182,8 +182,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                         let mut node = ValueNode::new(new_id, local, need_drop, need_drop || may_drop);
                         node.kind = kind(ty);
                         node.birth = self.values[proj_id].birth;
-                        node.field_info = self.values[proj_id].field_info.clone();
-                        node.field_info.push(field_idx);
+                        node.field_id = field_idx;
                         self.values[proj_id].fields.insert(field_idx, node.index);
                         self.values.push(node);
                     }
@@ -208,8 +207,7 @@ impl<'tcx> SafeDropGraph<'tcx>{
                 let mut node = ValueNode::new(self.values.len(), self.values[lv].local, self.values[field.1].need_drop, self.values[field.1].may_drop);
                 node.kind = self.values[field.1].kind;
                 node.birth = self.values[lv].birth;
-                node.field_info = self.values[lv].field_info.clone();
-                node.field_info.push(field.0);
+                node.field_id = field.0;
                 self.values[lv].fields.insert(field.0, node.index);
                 self.values.push(node);
             }
@@ -219,48 +217,46 @@ impl<'tcx> SafeDropGraph<'tcx>{
     }
     //inter-procedure instruction to merge alias.
     pub fn merge(&mut self, ret_alias: &RetAlias, arg_vec: &Vec<usize>) {
-    if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
-        rap_error!("Vector error!");
-        return;
-    }
-    let left_init = arg_vec[ret_alias.left_index];
-    let mut right_init = arg_vec[ret_alias.right_index];
-    let mut lv = left_init;
-    let mut rv = right_init;
-    for index in ret_alias.left.iter() {
-        if self.values[lv].fields.contains_key(&index) == false {
-            let need_drop = ret_alias.left_need_drop;
-            let may_drop = ret_alias.left_may_drop;
-            let mut node = ValueNode::new(self.values.len(), left_init, need_drop, may_drop);
-            node.kind = TyKind::RawPtr;
-            node.birth = self.values[lv].birth;
-            node.field_info = self.values[lv].field_info.clone();
-            node.field_info.push(*index);
-            self.values[lv].fields.insert(*index, node.index);
-            self.values.push(node);
+        if ret_alias.left_index >= arg_vec.len() || ret_alias.right_index >= arg_vec.len() {
+            rap_error!("Vector error!");
+            return;
         }
-        lv = *self.values[lv].fields.get(&index).unwrap();
-    }
-    for index in ret_alias.right.iter() {
-        if self.values[rv].alias[0] != rv {
-            rv = self.values[rv].alias[0];
-            right_init = self.values[rv].local;
+        let left_init = arg_vec[ret_alias.left_index];
+        let mut right_init = arg_vec[ret_alias.right_index];
+        let mut lv = left_init;
+        let mut rv = right_init;
+        for index in ret_alias.left.iter() {
+            if self.values[lv].fields.contains_key(&index) == false {
+                let need_drop = ret_alias.left_need_drop;
+                let may_drop = ret_alias.left_may_drop;
+                let mut node = ValueNode::new(self.values.len(), left_init, need_drop, may_drop);
+                node.kind = TyKind::RawPtr;
+                node.birth = self.values[lv].birth;
+                node.field_id = *index;
+                self.values[lv].fields.insert(*index, node.index);
+                self.values.push(node);
+            }
+            lv = *self.values[lv].fields.get(&index).unwrap();
         }
-        if self.values[rv].fields.contains_key(&index) == false {
-            let need_drop = ret_alias.right_need_drop;
-            let may_drop = ret_alias.right_may_drop;
-            let mut node = ValueNode::new(self.values.len(), right_init, need_drop, may_drop);
-            node.kind = TyKind::RawPtr;
-            node.birth = self.values[rv].birth;
-            node.field_info = self.values[rv].field_info.clone();
-            node.field_info.push(*index);
-            self.values[rv].fields.insert(*index, node.index);
-            self.values.push(node);
+        for index in ret_alias.right.iter() {
+            if self.values[rv].alias[0] != rv {
+                rv = self.values[rv].alias[0];
+                right_init = self.values[rv].local;
+            }
+            if self.values[rv].fields.contains_key(&index) == false {
+                let need_drop = ret_alias.right_need_drop;
+                let may_drop = ret_alias.right_may_drop;
+                let mut node = ValueNode::new(self.values.len(), right_init, need_drop, may_drop);
+                node.kind = TyKind::RawPtr;
+                node.birth = self.values[rv].birth;
+                node.field_id = *index;
+                self.values[rv].fields.insert(*index, node.index);
+                self.values.push(node);
+            }
+            rv = *self.values[rv].fields.get(&index).unwrap();
         }
-        rv = *self.values[rv].fields.get(&index).unwrap();
+        self.merge_alias(lv, rv);
     }
-    self.merge_alias(lv, rv);
-}
 }
 /*
  * To store the alias relationships among arguments and return values.
